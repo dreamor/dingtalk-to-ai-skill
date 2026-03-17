@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+coverage/
+.DS_Store
+.dingtalk.pid
+
+# IDE and development tools
+.weavefox/
+docs/superpowers
+CLAUDE.md
+
+# Claude Code local settings
+.claude/
+
+# Logs
+logs/
