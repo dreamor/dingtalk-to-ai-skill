@@ -164,7 +164,7 @@ export class CursorManager {
         updatedAt: parsed.updatedAt || Date.now(),
       };
       console.log(`[CursorManager] 已从文件加载游标: ${this.state.cursor || 'null'}`);
-    } catch (error) {
+    } catch (_error) {
       // 文件不存在或其他错误，忽略使用初始值
       console.log('[CursorManager] 未找到存储文件，使用初始游标');
     }

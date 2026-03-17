@@ -144,7 +144,6 @@ export class ClaudeCodeExecutor {
    */
   private parseOutput(output: string): string {
     // 移除 ANSI 颜色代码
-    // eslint-disable-next-line no-control-regex
     const result = output.replace(/\x1b\[[0-9;]*m/g, '');
 
     // 移除可能的状态行（如进度提示）

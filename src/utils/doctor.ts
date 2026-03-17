@@ -4,6 +4,7 @@
 import { spawn } from 'child_process';
 import { existsSync, statSync } from 'fs';
 import { readFileSync } from 'fs';
+import axios from 'axios';
 import { config } from '../config';
 
 export interface DoctorResult {
@@ -106,7 +107,6 @@ export class Doctor {
     // 检查 Token 有效性
     if (config.dingtalk.appKey && config.dingtalk.appSecret) {
       try {
-        const axios = require('axios');
         const response = await axios.get('https://oapi.dingtalk.com/gettoken', {
           params: {
             appkey: config.dingtalk.appKey,
@@ -223,7 +223,7 @@ export class Doctor {
         status: missing.length === 0 ? 'pass' : 'fail',
         message: missing.length === 0 ? '✅ 所有必要依赖已安装' : '❌ 缺少: ' + missing.join(', '),
       });
-    } catch (error) {
+    } catch (_error) {
       this.results.push({
         name: '依赖包',
         status: 'warn',

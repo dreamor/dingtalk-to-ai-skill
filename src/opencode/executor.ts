@@ -146,13 +146,13 @@ export class OpenCodeExecutor {
    */
   private parseOutput(output: string): string {
     // 移除 ANSI 颜色代码
-    let result = output.replace(/\x1b\[[0-9;]*m/g, '');
+    const cleanedOutput = output.replace(/\x1b\[[0-9;]*m/g, '');
     // 移除可能的状态行（如 "> build · minimax-m2.5-free"）
-    const lines = result.split('\n').filter(line => {
+    const lines = cleanedOutput.split('\n').filter(line => {
       const trimmed = line.trim();
       return trimmed && !trimmed.startsWith('>') && !trimmed.includes('·');
     });
-    return lines.join('\n').trim() || result.trim();
+    return lines.join('\n').trim() || cleanedOutput.trim();
   }
 
   /**

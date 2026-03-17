@@ -7,7 +7,6 @@ import {
   SessionState,
   SessionConfig,
   DEFAULT_SESSION_CONFIG,
-  ConversationContext,
   SessionStorage,
 } from '../types/session';
 import { ConversationMessage } from '../types/message';

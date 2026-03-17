@@ -2,7 +2,7 @@
  * 轮询服务
  * 主动拉取钉钉消息，实现无需内网穿透的消息接收
  */
-import { DingtalkService, type DingtalkMessage, type FetchMessagesParams, type FetchMessagesResult } from '../dingtalk/dingtalk';
+import { DingtalkService, type FetchMessagesParams, type FetchMessagesResult } from '../dingtalk/dingtalk';
 import { type MessageHandler, type PollingStatus } from './types';
 import { CursorManager } from './cursorManager';
 import { IntervalManager } from './intervalManager';

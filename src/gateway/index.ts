@@ -392,7 +392,6 @@ export class GatewayServer {
     const maxRetries = 3;
     let lastError: Error | null = null;
     let conversationId = '';
-    let replyContent = '';
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -414,7 +413,6 @@ export class GatewayServer {
         const replyTitle = config.aiProvider === 'claude' ? 'claude code 回复' : 'opencode 回复';
         if (result.success && result.data?.result) {
           const markdownText = renderMarkdown(result.data.result);
-          replyContent = markdownText;
 
           try {
             await this.dingtalkService.sendMarkdownMessage(
@@ -423,7 +421,7 @@ export class GatewayServer {
               markdownText
             );
             return; // 成功返回
-          } catch (sendError) {
+          } catch (_sendError) {
             // 发送失败，添加到重试队列
             console.error(`[Gateway] 发送回复失败，添加到重试队列`);
             const queueId = generateMessageId();
@@ -444,12 +442,11 @@ export class GatewayServer {
         } else {
           // 处理失败，返回细化错误信息
           const errorMsg = this.formatErrorMessage(result.message, result.data?.messageId);
-          replyContent = errorMsg;
 
           try {
             await this.dingtalkService.sendTextMessage(accessToken, errorMsg);
             return;
-          } catch (sendError) {
+          } catch (_sendError) {
             // 发送失败，添加到重试队列
             console.error(`[Gateway] 发送错误回复失败，添加到重试队列`);
             const queueId = generateMessageId();
@@ -500,8 +497,8 @@ export class GatewayServer {
         accessToken,
         '⚠️ 消息处理遇到问题，系统将自动重试，请稍候查看回复。'
       );
-    } catch (sendError) {
-      console.error('[Gateway] 发送错误回复失败:', sendError);
+    } catch (_sendError) {
+      console.error('[Gateway] 发送错误回复失败:', _sendError);
     }
   }
 
@@ -653,7 +650,7 @@ export class GatewayServer {
           console.log(`[Gateway] 处理队列消息：${message.content.substring(0, 50)}...`);
           
           // 处理消息（注意：这里需要构造正确的request对象）
-          const result = await this.processMessageInternal({
+          await this.processMessageInternal({
             msg: message.content,
             userId: message.userId,
             userName: message.username || '用户'

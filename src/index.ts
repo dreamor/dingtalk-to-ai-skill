@@ -17,7 +17,6 @@ import { MessageDeduplicator } from './utils/dedupCache';
 import { OpenCodeExecutor } from './opencode';
 import { PollingService } from './polling';
 import { 
-  sendAlert, 
   notifyServiceStart, 
   notifyServiceStop, 
   notifyError,
@@ -218,7 +217,6 @@ async function startPollingFallback(
       const userId = message.senderId || 'unknown';
       const userName = message.senderNick || '用户';
       const content = message.text?.content || '';
-      const conversationId = message.conversationId;
 
       console.log(`[Polling] 收到消息：${userName}(${userId}): ${content}`);
 
@@ -354,7 +352,7 @@ process.on('uncaughtException', async (error) => {
   // 严重错误，清理后退出
   try {
     await cleanupResources();
-  } catch (e) {
+  } catch (_e) {
     // ignore
   }
   process.exit(1);

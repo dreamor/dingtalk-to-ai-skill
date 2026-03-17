@@ -17,7 +17,7 @@ const SENSITIVE_PATTERNS = [
   // 管理员 webhook
   { pattern: /(adminSessionWebhook)[=:]\s*["']?(https?:\/\/[^&"']+)["']?/g, replace: '$1=****' },
   // OpenCode 模型参数
-  { pattern: /(-m\s+)([a-zA-Z0-9_\/-]+)/g, replace: '$1****' },
+  { pattern: /(-m\s+)([a-zA-Z0-9_/-]+)/g, replace: '$1****' },
   // Authorization 头
   { pattern: /(Authorization)[=:]\s*["']?([Bb]earer\s+)?([a-zA-Z0-9_-]+)["']?/gi, replace: '$1=****' },
   // 通用密钥模式 (30位以上的字母数字字符串)
