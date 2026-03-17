@@ -274,10 +274,9 @@ export class GatewayServer {
           aiProvider: config.aiProvider,
           opencode: {
             available: opencodeAvailable,
-            command: config.opencode.command,
-            timeout: config.opencode.timeout,
-            maxRetries: config.opencode.maxRetries,
-          },
+            command: config.ai.command,
+                  timeout: config.ai.timeout,
+                  maxRetries: config.ai.maxRetries,          },
           claude: {
             available: claudeAvailable,
             command: config.claude.command,

@@ -6,6 +6,7 @@ dist/
 coverage/
 .DS_Store
 .dingtalk.pid
+.docs/images/.gitkeep
 
 # IDE and development tools
 .weavefox/

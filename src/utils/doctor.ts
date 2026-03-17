@@ -141,7 +141,7 @@ export class Doctor {
    * 检查 OpenCode
    */
   private async checkOpenCode(): Promise<void> {
-    const cmd = config.opencode.command;
+    const cmd = config.ai.command;
 
     return new Promise((resolve) => {
       const proc = spawn(cmd, ['--version'], {

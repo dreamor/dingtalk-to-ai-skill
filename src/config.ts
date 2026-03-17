@@ -20,7 +20,7 @@ interface GatewayConfig {
 
 type AIProvider = 'opencode' | 'claude';
 
-interface OpenCodeConfig {
+interface AIConfig {
   enabled: boolean;
   command: string;
   timeout: number;
@@ -81,17 +81,17 @@ export const config = {
     apiToken: process.env.GATEWAY_API_TOKEN || undefined,
   } as GatewayConfig,
 
-  opencode: {
-    enabled: process.env.OPENCODE_ENABLED !== 'false',
-    command: process.env.OPENCODE_COMMAND || 'opencode',
-    timeout: parseInt(process.env.OPENCODE_TIMEOUT || '120000', 10),
-    maxRetries: parseInt(process.env.OPENCODE_MAX_RETRIES || '3', 10),
-    retryBaseDelay: parseInt(process.env.OPENCODE_RETRY_BASE_DELAY || '1000', 10),
-    retryMaxDelay: parseInt(process.env.OPENCODE_RETRY_MAX_DELAY || '10000', 10),
-    workingDir: process.env.OPENCODE_WORKING_DIR || process.cwd(),
-    model: process.env.OPENCODE_MODEL || '',
-    maxInputLength: parseInt(process.env.OPENCODE_MAX_INPUT_LENGTH || '10000', 10),
-  } as OpenCodeConfig,
+  ai: {
+    enabled: process.env.AI_ENABLED !== 'false',
+    command: process.env.AI_COMMAND || 'opencode',
+    timeout: parseInt(process.env.AI_TIMEOUT || '120000', 10),
+    maxRetries: parseInt(process.env.AI_MAX_RETRIES || '3', 10),
+    retryBaseDelay: parseInt(process.env.AI_RETRY_BASE_DELAY || '1000', 10),
+    retryMaxDelay: parseInt(process.env.AI_RETRY_MAX_DELAY || '10000', 10),
+    workingDir: process.env.AI_WORKING_DIR || process.cwd(),
+    model: process.env.AI_MODEL || '',
+    maxInputLength: parseInt(process.env.AI_MAX_INPUT_LENGTH || '10000', 10),
+  } as AIConfig,
 
   claude: {
     enabled: process.env.CLAUDE_ENABLED !== 'false',
@@ -142,13 +142,13 @@ export function validateConfig(): void {
     throw new Error(`缺少必要的环境变量配置: ${missingRequired.join(', ')}`);
   }
 
-  const aiProviderName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
+  const aiProviderName = config.aiProvider === 'claude' ? 'Claude Code' : 'AI CLI';
   console.log('✅ 配置验证通过');
   console.log(`   - AI Provider: ${aiProviderName}`);
   console.log(`   - 会话 TTL: ${config.session.ttl / 1000 / 60} 分钟`);
   console.log(`   - 最大历史消息：${config.session.maxHistoryMessages}`);
   console.log(`   - 用户最大并发：${config.messageQueue.maxConcurrentPerUser}`);
-  console.log(`   - ${aiProviderName} 超时：${config.aiProvider === 'claude' ? config.claude.timeout : config.opencode.timeout} / 1000 秒`);
+  console.log(`   - ${aiProviderName} 超时：${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout} / 1000 秒`);
   console.log(`   - Stream 模式：${config.stream.enabled ? '启用' : '禁用'}`);
 }
 

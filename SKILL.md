@@ -7,7 +7,7 @@ description: |
   "桥接 opencode", "远程控制 opencode", "启动钉钉", "停止桥接", "诊断", "查看日志", "配置钉钉".
   Subcommands: setup, start, stop, status, logs, doctor, rebuild.
   Do NOT use for: building other Dingtalk integrations, general coding tasks, or unrelated IM platforms.
-argument-hint: "setup | start | stop | status | logs [N] | doctor | rebuild"
+argument-hint: 'setup | start | stop | status | logs [N] | doctor | rebuild'
 allowed-tools:
   - Bash
   - Read
@@ -27,15 +27,15 @@ The project directory is at `$PROJECT_DIR` (current working directory).
 
 Parse the user's intent from `$ARGUMENTS` into one of these subcommands:
 
-| User says (examples) | Subcommand |
-|---|---|
-| `setup`, `configure`, `配置`, `配置钉钉`, `设置环境变量` | setup |
-| `start`, `启动`, `启动桥接`, `启动钉钉` | start |
-| `stop`, `停止`, `停止桥接`, `停止钉钉` | stop |
-| `status`, `状态`, `运行状态`, `桥接状态` | status |
-| `logs`, `logs 100`, `查看日志`, `查看日志 100` | logs |
-| `doctor`, `diagnose`, `诊断`, `出问题了`, `没反应了` | doctor |
-| `rebuild`, `重新构建`, `build` | rebuild |
+| User says (examples)                                     | Subcommand |
+| -------------------------------------------------------- | ---------- |
+| `setup`, `configure`, `配置`, `配置钉钉`, `设置环境变量` | setup      |
+| `start`, `启动`, `启动桥接`, `启动钉钉`                  | start      |
+| `stop`, `停止`, `停止桥接`, `停止钉钉`                   | stop       |
+| `status`, `状态`, `运行状态`, `桥接状态`                 | status     |
+| `logs`, `logs 100`, `查看日志`, `查看日志 100`           | logs       |
+| `doctor`, `diagnose`, `诊断`, `出问题了`, `没反应了`     | doctor     |
+| `rebuild`, `重新构建`, `build`                           | rebuild    |
 
 Extract optional numeric argument for `logs` (default 50).
 
@@ -65,14 +65,17 @@ When AskUserQuestion IS available, collect the following credentials **one field
 
 **Step 1 — Choose AI Provider**
 Ask which AI CLI to use:
+
 - **opencode** (default) — Use OpenCode CLI (MiniMax models, free tier available)
 - **claude** — Use Claude Code CLI (Anthropic models)
 
 **Required fields:**
+
 1. **DINGTALK_APP_KEY** — The Dingtalk app key. Tell the user: "Go to https://open.dingtalk.com → your app → Basic Info to find the App Key"
 2. **DINGTALK_APP_SECRET** — The Dingtalk app secret. Tell the user: "Find it in the same place as App Key (App Secret)"
 
 **Optional fields (use defaults if skipped):**
+
 - **AI_PROVIDER** (default: opencode) — Choose "opencode" or "claude"
 - **GATEWAY_PORT** (default: 3000) — The port for the gateway HTTP server
 - **SESSION_TTL** (default: 30 minutes) — Session time-to-live
@@ -95,9 +98,17 @@ After each answer, confirm the value back to the user (masking secrets to last 4
 
 **Pre-check:** Verify `.env` exists (see "Config check" above).
 
-Run: `npm run dev`
+Run: `bash start.sh`
+
+Or manually:
+
+```bash
+npm run build
+pm2 start ecosystem.config.js
+```
 
 Show the output to the user. If it fails, tell the user:
+
 - Run `doctor` to diagnose: `/dingtalk-opencode-bridge doctor`
 - Check logs: `/dingtalk-opencode-bridge logs`
 
@@ -105,16 +116,22 @@ The service starts in Stream mode by default (recommended). If Stream mode fails
 
 ### `stop`
 
-Find and kill the running Node.js process:
+Find and stop the PM2 process:
+
+```bash
+pm2 stop dingtalk-bot
+```
+
+Or kill the running Node.js process:
+
 ```bash
 pkill -f "ts-node src/index.ts" || pkill -f "node dist/index.js"
 ```
 
-Or use `lsof` to find the process on the gateway port (default 3000) and kill it.
-
 ### `status`
 
 Check if the bridge is running:
+
 1. Check for Node.js processes related to the project
 2. Check if the gateway port (from .env or default 3000) is listening
 3. Report the status to the user
@@ -124,6 +141,7 @@ Check if the bridge is running:
 Extract optional line count N from arguments (default 50).
 
 Options:
+
 1. Check `logs/` directory for log files
 2. Show output from the running process if available
 3. If no logs, tell the user "No logs found. Make sure the bridge is running with `npm run dev`"
@@ -131,6 +149,7 @@ Options:
 ### `doctor`
 
 Run diagnostics:
+
 1. Check if `.env` exists and is valid
 2. Check if dependencies are installed (`node_modules/`)
 3. Check if code is built (`dist/` directory)
@@ -141,6 +160,7 @@ Run diagnostics:
 Read `src/utils/doctor.ts` to understand the built-in diagnostic tool and run it if available.
 
 Report results and suggest fixes for any failures:
+
 - Dependencies missing → `npm install`
 - Code not built → `npm run build`
 - Port in use → find and stop the process using that port
@@ -155,10 +175,12 @@ Verify the build completes successfully. If it fails, show the error and help th
 ## Configuration reference
 
 Required environment variables:
+
 - `DINGTALK_APP_KEY` — Dingtalk app key
 - `DINGTALK_APP_SECRET` — Dingtalk app secret
 
 Optional variables (with defaults):
+
 - `GATEWAY_PORT` (default: 3000)
 - `SESSION_TTL` (default: 30 minutes)
 - `MQ_MAX_CONCURRENT_PER_USER` (default: 3)
@@ -168,6 +190,7 @@ Optional variables (with defaults):
 ## Architecture
 
 The bridge has three message receiving modes:
+
 1. **Stream mode** (recommended) — Uses `dingtalk-stream` SDK, connects to Dingtalk's WebSocket endpoint
 2. **Polling mode** — Falls back to polling Dingtalk's API
 3. **Gateway HTTP mode** — Provides REST API endpoints (`/api/test`, `/api/status`, `/api/sessions`)
@@ -175,6 +198,7 @@ The bridge has three message receiving modes:
 Message flow: Dingtalk群聊 → Stream/Polling → Gateway → OpenCode CLI → Response → Dingtalk
 
 Core modules:
+
 - `src/dingtalk/` — Dingtalk service client, token management, Stream/Polling
 - `src/gateway/` — Express server handling message routing, rate limiting
 - `src/opencode/` — OpenCode CLI executor wrapper

@@ -12,24 +12,23 @@ module.exports = {
       name: 'dingtalk-bot',
       script: 'dist/index.js',
       instances: 1,
+      exec_mode: 'fork',
       autorestart: true,
       watch: false,
       max_memory_restart: '500M',
-      
+
       // 日志配置
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       error_file: './logs/error.log',
       out_file: './logs/out.log',
       merge_logs: true,
-      
+
       // 重启策略
-      exp_backoff_restart_delay: 100,  // 指数退避重启
+      exp_backoff_restart_delay: 100, // 指数退避重启
       max_restarts: 10,
       restart_delay: 3000,
       kill_timeout: 5000,
-      wait_ready: false,
-      listen_timeout: 10000,
-      
+
       // 环境变量
       env: {
         NODE_ENV: 'production',

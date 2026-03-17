@@ -24,6 +24,7 @@ import {
   isAlertEnabled,
   setStreamService 
 } from './utils/alert';
+import { enableGlobalSanitize } from './utils/logger';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
@@ -32,8 +33,11 @@ let globalGateway: GatewayServer | null = null;
 let globalSessionManager: SessionManager | null = null;
 
 async function main(): Promise<void> {
-  console.log('🚀 启动钉钉 + OpenCode 集成系统...');
-  console.log('📦 所有消息将通过 OpenCode CLI 处理');
+  // 启用全局日志脱敏
+  enableGlobalSanitize();
+
+  console.log('🚀 启动钉钉 + AI 集成系统...');
+  console.log('📦 所有消息将通过 AI CLI 处理');
 
   // 验证配置
   validateConfig();
@@ -42,12 +46,12 @@ async function main(): Promise<void> {
   const dingtalkService = new DingtalkService();
   const openCodeExecutor = new OpenCodeExecutor();
 
-  // 检查 OpenCode 是否可用
+  // 检查 AI CLI 是否可用
   const opencodeAvailable = await openCodeExecutor.isAvailable();
   if (opencodeAvailable) {
-    console.log('✅ OpenCode CLI 可用');
+    console.log('✅ AI CLI 可用');
   } else {
-    console.log('⚠️ OpenCode CLI 未安装，请先安装或配置 OPENCODE_COMMAND');
+    console.log('⚠️ AI CLI 未安装，请先安装 opencode 或 claude');
   }
 
   // 初始化会话管理
@@ -86,7 +90,7 @@ async function main(): Promise<void> {
   console.log(`   - 会话管理器：已启动 (TTL: ${config.session.ttl / 1000 / 60}分钟)`);
   console.log(`   - 流量控制：已启动 (令牌：${config.messageQueue.rateLimitMaxTokens})`);
   console.log(`   - 并发控制：已启动 (用户：${config.messageQueue.maxConcurrentPerUser})`);
-  console.log(`   - OpenCode 超时：${config.opencode.timeout / 1000}秒`);
+  console.log(`   - AI 超时：${config.ai.timeout / 1000}秒`);
 
   // 创建 Gateway 服务
   const gateway = new GatewayServer(
@@ -106,10 +110,14 @@ async function main(): Promise<void> {
   try {
     await gateway.start(config.gateway.port);
     console.log(`✅ Gateway 服务已启动，监听端口：${config.gateway.port}`);
-    console.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
-    console.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
-    console.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
-  } catch (error) {
+      console.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
+      console.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
+      console.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
+    
+      // 通知 PM2 服务已就绪
+      if (process.send) {
+        process.send('ready');
+      }  } catch (error) {
     console.error('❌ 启动 Gateway 失败:', error);
     process.exit(1);
   }
@@ -130,7 +138,7 @@ async function main(): Promise<void> {
       
       try {
         // 使用超时包装消息处理，防止长时间阻塞
-        const processingTimeout = config.opencode.timeout + 10000; // OpenCode 超时 + 10秒缓冲
+        const processingTimeout = config.ai.timeout + 10000; // AI 超时 + 10秒缓冲
         const timeoutPromise = new Promise<never>((_, reject) => {
           setTimeout(() => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)), processingTimeout);
         });
@@ -149,7 +157,7 @@ async function main(): Promise<void> {
         console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
         
         // 使用 sessionWebhook 发送回复
-        const replyTitle = config.aiProvider === 'claude' ? 'claude code 回复' : 'opencode 回复';
+        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
         if (result.success && result.data?.result) {
           await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
           console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
@@ -223,7 +231,7 @@ async function startPollingFallback(
         });
 
         // 发送回复
-        const replyTitle = config.aiProvider === 'claude' ? 'claude code 回复' : 'opencode 回复';
+        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
         if (result.success && result.data?.result) {
           const accessToken = await dingtalkService.getAccessToken();
           await dingtalkService.sendMarkdownMessage(

@@ -49,12 +49,12 @@ export class OpenCodeExecutor {
 
   constructor(options?: Partial<OpenCodeConfig>) {
     this.config = {
-      command: config.opencode.command,
-      timeout: config.opencode.timeout,
-      maxRetries: config.opencode.maxRetries,
-      workingDir: config.opencode.workingDir,
-      model: config.opencode.model,
-      maxInputLength: config.opencode.maxInputLength,
+      command: config.ai.command,
+      timeout: config.ai.timeout,
+      maxRetries: config.ai.maxRetries,
+      workingDir: config.ai.workingDir,
+      model: config.ai.model,
+      maxInputLength: config.ai.maxInputLength,
       ...options,
     };
   }
@@ -236,6 +236,13 @@ export class OpenCodeExecutor {
         }
         
         console.log(`[OpenCode] 进程结束，退出码: ${code}`);
+        // 调试：打印 stdout 和 stderr 内容
+        if (stdout) {
+          console.log(`[OpenCode] stdout: ${stdout.substring(0, 500)}`);
+        }
+        if (stderr) {
+          console.log(`[OpenCode] stderr: ${stderr.substring(0, 500)}`);
+        }
         
         resolve({
           success: code === 0,

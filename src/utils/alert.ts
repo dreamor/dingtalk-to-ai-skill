@@ -154,7 +154,7 @@ export async function notifyServiceStart(): Promise<void> {
     '钉钉机器人服务启动',
     `**服务模式**: Stream 模式\n` +
     `**Gateway 端口**: ${config.gateway.port}\n` +
-    `**OpenCode 超时**: ${config.opencode.timeout / 1000}秒\n` +
+    `**AI 超时**: ${config.ai.timeout / 1000}秒\n` +
     `**会话 TTL**: ${config.session.ttl / 1000 / 60}分钟`,
     'info'
   );
