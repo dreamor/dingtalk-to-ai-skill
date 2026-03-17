@@ -11,20 +11,24 @@ import axios from 'axios';
 import { updateAdminSessionWebhook, getAdminConversationId } from '../utils/alert';
 
 export interface MessageHandler {
-  (userId: string, userName: string, content: string, conversationId: string, sessionWebhook: string): Promise<void>;
+  (
+    userId: string,
+    userName: string,
+    content: string,
+    conversationId: string,
+    sessionWebhook: string
+  ): Promise<void>;
 }
 
-const DEFAULT_SUBSCRIPTIONS = [
-  { type: 'CALLBACK', topic: TOPIC_ROBOT },
-];
+const DEFAULT_SUBSCRIPTIONS = [{ type: 'CALLBACK', topic: TOPIC_ROBOT }];
 
 interface SessionInfo {
   conversationId: string;
   sessionWebhook: string;
   timestamp: number;
-  lastUsedAt: number;           // 最后使用时间
-  healthStatus: 'healthy' | 'unknown' | 'failed';  // 健康状态
-  failureCount: number;         // 连续失败计数
+  lastUsedAt: number; // 最后使用时间
+  healthStatus: 'healthy' | 'unknown' | 'failed'; // 健康状态
+  failureCount: number; // 连续失败计数
 }
 
 export class DingtalkStreamService {
@@ -46,11 +50,14 @@ export class DingtalkStreamService {
     console.log('  - KeepAlive enabled');
     console.log('  - Key fix: Immediate ACK mechanism');
     console.log('  - Heartbeat timeout: 120s');
-    
-    this.cleanupTimer = setInterval(() => {
-      this.cleanupExpiredMessages();
-    }, 5 * 60 * 1000);
-    
+
+    this.cleanupTimer = setInterval(
+      () => {
+        this.cleanupExpiredMessages();
+      },
+      5 * 60 * 1000
+    );
+
     this.startHeartbeatMonitor();
   }
 
@@ -90,8 +97,9 @@ export class DingtalkStreamService {
 
     this.client.on('close', () => {
       this.isConnected = false;
-      const duration = this.connectionStartTime ? 
-        Math.round((Date.now() - this.connectionStartTime) / 1000) : 0;
+      const duration = this.connectionStartTime
+        ? Math.round((Date.now() - this.connectionStartTime) / 1000)
+        : 0;
       console.log(`[Stream] Connection closed (duration: ${duration}s)`);
       console.log('  - SDK will auto-reconnect...');
     });
@@ -107,7 +115,7 @@ export class DingtalkStreamService {
       console.log('  - Message ID:', msg.headers.messageId);
       console.log('  - Topic:', msg.headers.topic);
       console.log('========================================');
-      
+
       await this.handleMessage(msg).catch(error => {
         console.error('[Stream] Failed to handle message:', error);
       });
@@ -118,7 +126,10 @@ export class DingtalkStreamService {
       await this.client.connect();
       console.log('[Stream] Connected, waiting for messages...');
     } catch (error) {
-      console.error('[Stream] Connection failed:', error instanceof Error ? error.message : String(error));
+      console.error(
+        '[Stream] Connection failed:',
+        error instanceof Error ? error.message : String(error)
+      );
       throw error;
     }
   }
@@ -128,16 +139,18 @@ export class DingtalkStreamService {
       if (this.isConnected && this.lastHeartbeatTime > 0) {
         const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
         if (timeSinceLastHeartbeat > this.heartbeatTimeout) {
-          console.warn(`[Stream] Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), connection may be lost`);
+          console.warn(
+            `[Stream] Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), connection may be lost`
+          );
         }
       }
-      
+
       if (this.lastMessageTime > 0) {
         const timeSinceLastMessage = Date.now() - this.lastMessageTime;
         console.log(
           `[Stream] Status: connected=${this.isConnected}, ` +
-          `lastMsg=${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
-          `pending=${this.pendingMessages.size}`
+            `lastMsg=${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
+            `pending=${this.pendingMessages.size}`
         );
       }
     }, 60 * 1000);
@@ -196,17 +209,17 @@ export class DingtalkStreamService {
    */
   private async handleMessage(msg: DWClientDownStream): Promise<void> {
     const messageId = msg.headers.messageId;
-    
+
     // KEY FIX: ACK to DingTalk immediately to prevent timeout
     this.client?.socketCallBackResponse(messageId, { received: true });
     console.log(`[Stream] [${messageId}] ACK sent to DingTalk`);
-    
+
     try {
       const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
-      
+
       this.lastMessageTime = Date.now();
       this.updateHeartbeat();
-      
+
       console.log(`[Stream] [${messageId}] Message data:`, {
         type: data.msgtype,
         hasText: !!data.text?.content,
@@ -214,23 +227,28 @@ export class DingtalkStreamService {
         hasConversationId: !!data.conversationId,
         hasSessionWebhook: !!data.sessionWebhook,
       });
-      
-      const {
-        senderId,
-        senderNick,
-        text,
-        msgtype,
-        conversationId,
-        sessionWebhook,
-        content,
-      } = data;
+
+      const { senderId, senderNick, text, msgtype, conversationId, sessionWebhook, content } = data;
 
       const userId = senderId || 'unknown';
       const userName = senderNick || 'Unknown';
-      
+
       // Extract message content (support multiple types)
       let messageContent: string | undefined;
-      
+
+      // Handle non-text message types with friendly response
+      const supportedMsgTypes = ['text'];
+      if (msgtype && !supportedMsgTypes.includes(msgtype)) {
+        console.log(`[Stream] [${messageId}] Received unsupported message type: ${msgtype}`);
+
+        // Send friendly response for unsupported types
+        if (sessionWebhook) {
+          const unsupportedMsg = this.getUnsupportedMessageResponse(msgtype);
+          await this.sendTextMessage(conversationId!, unsupportedMsg);
+        }
+        return; // Skip further processing
+      }
+
       if (msgtype === 'text' && text?.content) {
         messageContent = text.content;
       } else if (typeof content === 'string' && content) {
@@ -247,11 +265,11 @@ export class DingtalkStreamService {
           timestamp: Date.now(),
           lastUsedAt: Date.now(),
           healthStatus: 'unknown' as const,
-          failureCount: 0
+          failureCount: 0,
         });
-        
+
         console.log(`[Stream] [${messageId}] Session saved: ${conversationId.substring(0, 30)}...`);
-        
+
         const adminUserId = getAdminConversationId();
         if (adminUserId && userId === adminUserId) {
           console.log(`[Stream] [${messageId}] Admin message detected`);
@@ -263,10 +281,10 @@ export class DingtalkStreamService {
       if (messageContent && messageContent.trim() !== '') {
         console.log(
           `[Stream] [${messageId}] From ${userName}(${userId}): ` +
-          `${messageContent.substring(0, 80)}${messageContent.length > 80 ? '...' : ''}`
+            `${messageContent.substring(0, 80)}${messageContent.length > 80 ? '...' : ''}`
         );
         console.log(`[Stream] [${messageId}] sessionWebhook: ${sessionWebhook ? 'yes' : 'no'}`);
-        
+
         // Call message handler (async, don't wait)
         if (this.messageHandler && sessionWebhook) {
           console.log(`[Stream] [${messageId}] Starting async processing...`);
@@ -296,7 +314,10 @@ export class DingtalkStreamService {
         console.log(`[Stream] [${messageId}] Skipping empty message (type=${msgtype})`);
       }
     } catch (error) {
-      console.error(`[Stream] [${messageId}] Failed to parse message:`, error instanceof Error ? error.message : error);
+      console.error(
+        `[Stream] [${messageId}] Failed to parse message:`,
+        error instanceof Error ? error.message : error
+      );
       // Already ACKed at function start
     }
   }
@@ -364,11 +385,7 @@ export class DingtalkStreamService {
     }
   }
 
-  async sendMarkdownMessage(
-    conversationId: string,
-    title: string,
-    text: string
-  ): Promise<boolean> {
+  async sendMarkdownMessage(conversationId: string, title: string, text: string): Promise<boolean> {
     try {
       if (!this.client) {
         throw new Error('Stream client not connected');
@@ -441,7 +458,9 @@ export class DingtalkStreamService {
       if (sessionInfo.failureCount >= 3 && now - sessionInfo.lastUsedAt > 5 * 60 * 1000) {
         this.pendingMessages.delete(conversationId);
         staleCount++;
-        console.log(`[Stream] Cleaned stale webhook (${sessionInfo.failureCount} failures): ${conversationId.substring(0, 30)}...`);
+        console.log(
+          `[Stream] Cleaned stale webhook (${sessionInfo.failureCount} failures): ${conversationId.substring(0, 30)}...`
+        );
       }
     }
 
@@ -483,12 +502,32 @@ export class DingtalkStreamService {
     const now = Date.now();
     return {
       connected: this.isConnected,
-      uptimeSeconds: this.connectionStartTime ? Math.round((now - this.connectionStartTime) / 1000) : 0,
-      lastHeartbeatSecondsAgo: this.lastHeartbeatTime ? Math.round((now - this.lastHeartbeatTime) / 1000) : -1,
-      lastMessageSecondsAgo: this.lastMessageTime ? Math.round((now - this.lastMessageTime) / 1000) : -1,
+      uptimeSeconds: this.connectionStartTime
+        ? Math.round((now - this.connectionStartTime) / 1000)
+        : 0,
+      lastHeartbeatSecondsAgo: this.lastHeartbeatTime
+        ? Math.round((now - this.lastHeartbeatTime) / 1000)
+        : -1,
+      lastMessageSecondsAgo: this.lastMessageTime
+        ? Math.round((now - this.lastMessageTime) / 1000)
+        : -1,
       pendingMessages: this.pendingMessages.size,
       healthySessions: this.getHealthySessionCount(),
       failedSessions: this.getFailedSessionCount(),
     };
+  }
+
+  /**
+   * 获取不支持的消息类型的友好回复
+   */
+  private getUnsupportedMessageResponse(msgType: string): string {
+    const tips: Record<string, string> = {
+      image: '📷 抱歉，我目前不支持图片消息。请发送文字消息，我会尽快回复您。',
+      file: '📎 抱歉，我目前不支持文件消息。请发送文字消息，我会尽快回复您。',
+      voice: '🎤 抱歉，我目前不支持语音消息。请发送文字消息，我会尽快回复您。',
+      video: '🎥 抱歉，我目前不支持视频消息。请发送文字消息，我会尽快回复您。',
+      richText: '📝 抱歉，我目前不支持富文本消息。请发送文字消息，我会尽快回复您。',
+    };
+    return tips[msgType] || '📋 抱歉，我暂不支持此类消息。请发送文字消息，我会尽快回复您。';
   }
 }

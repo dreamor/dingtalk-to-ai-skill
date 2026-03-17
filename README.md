@@ -47,12 +47,13 @@ git clone https://github.com/dreamor/dingtalk-to-ai-skill.git ~/.claude/skills/d
 
 ## 快速开始（不使用 Skill）
 
-### 1. 克隆项目
+### 1. 克隆项目并安装依赖
 
 ```bash
 git clone https://github.com/dreamor/dingtalk-to-ai-skill.git
 cd dingtalk-to-ai-skill
 npm install
+npm run build
 ```
 
 ### 2. 配置
@@ -81,6 +82,10 @@ AI_PROVIDER=claude
 ### 4. 启动
 
 ```bash
+# 方式一：使用 PM2（推荐，生产环境）
+bash start.sh
+
+# 方式二：直接运行（开发调试）
 npm run dev
 ```
 
@@ -92,56 +97,54 @@ npm run dev
 
 ## 管理命令
 
-使用 scripts 管理服务：
-
 ```bash
-# 启动
-bash scripts/daemon.sh start
+# 启动（推荐）
+bash start.sh
 
 # 停止
-bash scripts/daemon.sh stop
+pm2 stop dingtalk-bot
 
 # 状态
-bash scripts/daemon.sh status
+pm2 status
 
 # 查看日志
-bash scripts/daemon.sh logs [行数]
-
-# 诊断
-bash scripts/doctor.sh
+pm2 logs dingtalk-bot
 
 # 重新构建
 npm run build
+
+# 诊断
+npm run dev  # 查看输出日志
 ```
 
 ## 配置说明
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGTALK_APP_KEY` | 钉钉应用 Key | 必填 |
-| `DINGTALK_APP_SECRET` | 钉钉应用 Secret | 必填 |
-| `AI_PROVIDER` | AI CLI 类型 (opencode/claude) | opencode |
-| `GATEWAY_PORT` | 服务端口 | 3000 |
-| `SESSION_TTL` | 会话超时(毫秒) | 1800000 |
-| `MQ_MAX_CONCURRENT_PER_USER` | 每用户最大并发 | 3 |
-| `MQ_MAX_CONCURRENT_GLOBAL` | 全局最大并发 | 10 |
-| `OPENCODE_TIMEOUT` | OpenCode 超时(毫秒) | 120000 |
-| `CLAUDE_TIMEOUT` | Claude Code 超时(毫秒) | 120000 |
+| 变量                         | 说明                          | 默认值   |
+| ---------------------------- | ----------------------------- | -------- |
+| `DINGTALK_APP_KEY`           | 钉钉应用 Key                  | 必填     |
+| `DINGTALK_APP_SECRET`        | 钉钉应用 Secret               | 必填     |
+| `AI_PROVIDER`                | AI CLI 类型 (opencode/claude) | opencode |
+| `GATEWAY_PORT`               | 服务端口                      | 3000     |
+| `SESSION_TTL`                | 会话超时(毫秒)                | 1800000  |
+| `MQ_MAX_CONCURRENT_PER_USER` | 每用户最大并发                | 3        |
+| `MQ_MAX_CONCURRENT_GLOBAL`   | 全局最大并发                  | 10       |
+| `OPENCODE_TIMEOUT`           | OpenCode 超时(毫秒)           | 120000   |
+| `CLAUDE_TIMEOUT`             | Claude Code 超时(毫秒)        | 120000   |
 
 ## AI Provider 选择
 
-| Provider | 适用场景 | 安装方式 |
-|----------|----------|----------|
-| `opencode` | 日常聊天对话 | `npm install -g opencode` |
-| `claude` | 项目开发任务 | `brew install anthropic/claude/claude` |
+| Provider   | 适用场景     | 安装方式                               |
+| ---------- | ------------ | -------------------------------------- |
+| `opencode` | 日常聊天对话 | `npm install -g opencode`              |
+| `claude`   | 项目开发任务 | `brew install anthropic/claude/claude` |
 
 ## API 接口
 
-| 接口 | 方法 | 描述 |
-|------|------|------|
-| `/health` | GET | 健康检查 |
-| `/api/status` | GET | 系统状态（含 AI Provider 状态） |
-| `/api/doctor` | GET | 诊断检查 |
+| 接口          | 方法 | 描述                            |
+| ------------- | ---- | ------------------------------- |
+| `/health`     | GET  | 健康检查                        |
+| `/api/status` | GET  | 系统状态（含 AI Provider 状态） |
+| `/api/doctor` | GET  | 诊断检查                        |
 
 ## 项目结构
 
