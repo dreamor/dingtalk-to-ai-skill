@@ -1,39 +1,32 @@
 {
-  "name": "dingtalk-to-ai-skill",
+  "name": "dingtalk-bridge",
   "version": "1.1.0",
-  "description": "通过钉钉群聊远程控制本地 AI CLI（OpenCode 或 Claude Code），在手机上随时随地与 AI 编码助手交互",
+  "description": "Manage and control a Dingtalk-to-AI bridge service that forwards messages from Dingtalk group chats to OpenCode or Claude Code CLI",
   "author": "dreamor",
-  "repository": "https://github.com/dreamor/dingtalk-to-ai-skill",
-  "tags": [
-    "dingtalk",
-    "opencode",
-    "claude",
-    "cli",
-    "integration",
-    "bridge",
-    "chatbot",
-    "ai-agent"
-  ],
-  "agents": [
-    "opencode",
-    "claude-code"
-  ],
-  "entry": "SKILL.md",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dreamor/dingtalk-to-ai-skill"
+  },
   "homepage": "https://github.com/dreamor/dingtalk-to-ai-skill#readme",
   "bugs": {
     "url": "https://github.com/dreamor/dingtalk-to-ai-skill/issues"
   },
-  "skills": {
-    "dingtalk-bridge": {
-      "description": "Manage the Dingtalk to AI CLI bridge (OpenCode or Claude Code). Use for: setting up, starting, stopping, or diagnosing the bridge; forwarding messages from Dingtalk group chat to OpenCode or Claude Code CLI.",
-      "argument-hint": "setup | start | stop | status | logs [N] | doctor | rebuild",
-      "allowed-tools": [
-        "Bash",
-        "Read",
-        "Write",
-        "Edit"
-      ]
-    }
-  }
+  "keywords": [
+    "dingtalk",
+    "opencode",
+    "claude",
+    "cli",
+    "bridge",
+    "chatbot",
+    "ai-agent",
+    "integration",
+    "remote-control"
+  ],
+  "agents": [
+    "claude-code",
+    "opencode"
+  ],
+  "entry": "SKILL.md",
+  "type": "skill"
 }

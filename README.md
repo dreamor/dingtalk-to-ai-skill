@@ -4,10 +4,23 @@
 
 ## 安装 Skill
 
-### 推荐：使用 npx skills 安装（Claude Code / OpenCode 通用）
+### 方式一：Claude Code Plugin 安装（推荐）
 
 ```bash
-# 一键安装（推荐方式）
+/plugin marketplace add dreamor/dingtalk-to-ai-skill
+/plugin install dingtalk-bridge
+```
+
+或在 Claude Code 中直接运行：
+```
+/plugin install https://github.com/dreamor/dingtalk-to-ai-skill
+```
+
+### 方式二：使用 npx skills 安装（通用）
+
+```bash
+# 一键安装
+cd /path/to/your/project
 npx skills add dreamor/dingtalk-to-ai-skill
 ```
 
