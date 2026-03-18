@@ -104,7 +104,7 @@ Or manually:
 
 ```bash
 npm run build
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 ```
 
 Show the output to the user. If it fails, tell the user:

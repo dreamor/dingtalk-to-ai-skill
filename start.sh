@@ -20,7 +20,7 @@ npx tsc
 
 # 启动 PM2
 echo "启动 PM2..."
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # 等待服务启动
 sleep 3
