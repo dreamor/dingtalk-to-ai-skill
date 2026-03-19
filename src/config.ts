@@ -21,7 +21,6 @@ interface GatewayConfig {
 type AIProvider = 'opencode' | 'claude';
 
 interface AIConfig {
-  enabled: boolean;
   command: string;
   timeout: number;
   maxRetries: number;
@@ -33,7 +32,6 @@ interface AIConfig {
 }
 
 interface ClaudeCodeConfig {
-  enabled: boolean;
   command: string;
   timeout: number;
   maxRetries: number;
@@ -82,19 +80,17 @@ export const config = {
   } as GatewayConfig,
 
   ai: {
-    enabled: process.env.AI_ENABLED !== 'false',
-    command: process.env.AI_COMMAND || 'opencode',
-    timeout: parseInt(process.env.AI_TIMEOUT || '120000', 10),
-    maxRetries: parseInt(process.env.AI_MAX_RETRIES || '3', 10),
-    retryBaseDelay: parseInt(process.env.AI_RETRY_BASE_DELAY || '1000', 10),
-    retryMaxDelay: parseInt(process.env.AI_RETRY_MAX_DELAY || '10000', 10),
-    workingDir: process.env.AI_WORKING_DIR || process.cwd(),
-    model: process.env.AI_MODEL || '',
-    maxInputLength: parseInt(process.env.AI_MAX_INPUT_LENGTH || '10000', 10),
+    command: process.env.OPENCODE_COMMAND || 'opencode',
+    timeout: parseInt(process.env.OPENCODE_TIMEOUT || '120000', 10),
+    maxRetries: parseInt(process.env.OPENCODE_MAX_RETRIES || '3', 10),
+    retryBaseDelay: parseInt(process.env.OPENCODE_RETRY_BASE_DELAY || '1000', 10),
+    retryMaxDelay: parseInt(process.env.OPENCODE_RETRY_MAX_DELAY || '10000', 10),
+    workingDir: process.env.OPENCODE_WORKING_DIR || process.cwd(),
+    model: process.env.OPENCODE_MODEL || '',
+    maxInputLength: parseInt(process.env.OPENCODE_MAX_INPUT_LENGTH || '10000', 10),
   } as AIConfig,
 
   claude: {
-    enabled: process.env.CLAUDE_ENABLED !== 'false',
     command: process.env.CLAUDE_COMMAND || 'claude',
     timeout: parseInt(process.env.CLAUDE_TIMEOUT || '120000', 10),
     maxRetries: parseInt(process.env.CLAUDE_MAX_RETRIES || '3', 10),
