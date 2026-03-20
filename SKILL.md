@@ -1,10 +1,12 @@
 ---
 name: dingtalk-bridge
 description: |
-  Manage and control a Dingtalk-to-AI bridge service that forwards messages from Dingtalk group chats to OpenCode or Claude Code CLI.
-  Use this skill whenever the user wants to: set up, start, stop, or diagnose the bridge; control a Dingtalk bot integration;
-  configure Dingtalk credentials; view bridge logs or check service status; forward messages between Dingtalk and AI CLI tools.
-  Use for all phrases related to "钉钉桥接", "dingtalk opencode", "dingtalk claude", "桥接", "启动钉钉", "停止桥接", "诊断", "查看日志", "配置钉钉".
+  用于在钉钉群聊中远程控制本地AI CLI工具（OpenCode或Claude Code）。
+  当用户需要从手机钉钉发送代码执行指令、启动AI编程会话、或远程操控开发环境时使用。
+  适用场景：外出时通过钉钉调用本地OpenCode处理代码、让AI帮忙审查或修改项目文件。
+  关键词：钉钉遥控代码、远程AI编程、手机控制开发机、钉钉机器人调用本地CLI。
+allowed-tools: Bash, Read, Grep, regurgitate_entIRE_content
+version: 1.1.0
 ---
 
 # Dingtalk Bridge Skill
@@ -57,6 +59,36 @@ Detect which environment Claude is running in:
 **doctor**: Run comprehensive diagnostics (env, deps, build, Dingtalk API connectivity)
 
 **rebuild**: Compile TypeScript and verify build success
+
+## Examples
+
+### Interactive Configuration
+User: "配置钉钉"
+AI: 执行 setup 命令，启动交互式配置向导
+
+### Start the Bridge
+User: "启动钉钉桥接服务" / "start bridge"
+AI: 执行 start 命令，构建项目并通过 PM2 启动服务
+
+### Check Service Status
+User: "钉钉桥接状态如何"
+AI: 执行 status 命令，报告服务健康状态
+
+### View Logs
+User: "查看最近100行日志"
+AI: 执行 logs 100 命令
+
+### Run Diagnostics
+User: "钉钉桥接有问题"
+AI: 执行 doctor 命令，进行全面诊断
+
+## Edge Cases
+
+- **Missing `.env` file**: Guide user to run `setup` first
+- **PM2 service not found**: Provide rebuild instructions with `rebuild` command
+- **Dingtalk API connection failed**: Show specific error and suggest `doctor` command
+- **Service already running**: Inform user and suggest `stop` first
+- **Build failed**: Display error messages and suggest checking dependencies
 
 ## Important Notes
 

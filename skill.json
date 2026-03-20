@@ -1,7 +1,7 @@
 {
   "name": "dingtalk-bridge",
   "version": "1.1.0",
-  "description": "Manage and control a Dingtalk-to-AI bridge service that forwards messages from Dingtalk group chats to OpenCode or Claude Code CLI",
+  "description": "用于在钉钉群聊中远程控制本地AI CLI工具（OpenCode或Claude Code）。当用户需要从手机钉钉发送代码执行指令、启动AI编程会话、或远程操控开发环境时使用。",
   "author": "dreamor",
   "license": "MIT",
   "repository": {
