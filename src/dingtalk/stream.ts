@@ -1,14 +1,16 @@
 /**
- * DingTalk Stream Service - Fixed Version
- * Key fixes:
+ * DingTalk Stream Service - Enhanced Version
+ * Features:
  * 1. Immediate ACK to DingTalk server to prevent timeout/retry
  * 2. Async message processing without blocking
  * 3. Enhanced logging and monitoring
+ * 4. Auto-reconnect with exponential backoff
+ * 5. Connection health monitoring
  */
 import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
-import { updateAdminSessionWebhook, getAdminConversationId } from '../utils/alert';
+import { updateAdminSessionWebhook, getAdminConversationId, notifyError, isAlertEnabled } from '../utils/alert';
 
 export interface MessageHandler {
   (
@@ -43,13 +45,22 @@ export class DingtalkStreamService {
   private heartbeatMonitorTimer: NodeJS.Timeout | null = null;
   private readonly messageTTL: number = 30 * 60 * 1000;
   private readonly heartbeatTimeout: number = 120 * 1000;
+  
+  // 重连相关
+  private reconnectAttempts: number = 0;
+  private maxReconnectAttempts: number = 10;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private isManualDisconnect: boolean = false;
 
   constructor() {
-    console.log('[Stream] Service initialized (fixed version)');
+    this.maxReconnectAttempts = config.stream.maxReconnectAttempts;
+    console.log('[Stream] Service initialized (enhanced version)');
     console.log('  - Topics:', DEFAULT_SUBSCRIPTIONS.map(s => s.topic).join(', '));
     console.log('  - KeepAlive enabled');
     console.log('  - Key fix: Immediate ACK mechanism');
     console.log('  - Heartbeat timeout: 120s');
+    console.log(`  - Auto-reconnect: enabled (max ${this.maxReconnectAttempts} attempts)`);
+    console.log(`  - Reconnect delay: ${config.stream.reconnectBaseDelay || 1000}ms - ${config.stream.reconnectMaxDelay || 60000}ms`);
 
     this.cleanupTimer = setInterval(
       () => {
@@ -66,6 +77,10 @@ export class DingtalkStreamService {
   }
 
   async start(): Promise<void> {
+    // 重置重连状态
+    this.isManualDisconnect = false;
+    this.reconnectAttempts = 0;
+    
     const { appKey, appSecret } = config.dingtalk;
 
     if (!appKey || !appSecret) {
@@ -91,8 +106,10 @@ export class DingtalkStreamService {
       this.connectionStartTime = Date.now();
       this.isConnected = true;
       this.lastHeartbeatTime = Date.now();
-      console.log('[Stream] Connection established');
+      this.reconnectAttempts = 0; // 重置重连计数
+      console.log('[Stream] ✅ Connection established');
       console.log(`  - Connected at: ${new Date().toISOString()}`);
+      console.log(`  - Reconnect attempts reset to 0`);
     });
 
     this.client.on('close', () => {
@@ -100,13 +117,22 @@ export class DingtalkStreamService {
       const duration = this.connectionStartTime
         ? Math.round((Date.now() - this.connectionStartTime) / 1000)
         : 0;
-      console.log(`[Stream] Connection closed (duration: ${duration}s)`);
-      console.log('  - SDK will auto-reconnect...');
+      console.log(`[Stream] ⚠️ Connection closed (duration: ${duration}s)`);
+      
+      // 如果不是手动断开，尝试重新连接
+      if (!this.isManualDisconnect) {
+        this.handleDisconnect();
+      }
     });
 
     this.client.on('error', (error: Error) => {
       this.isConnected = false;
-      console.error('[Stream] Connection error:', error.message);
+      console.error('[Stream] ❌ Connection error:', error.message);
+      
+      // 如果不是手动断开，尝试重新连接
+      if (!this.isManualDisconnect) {
+        this.handleDisconnect();
+      }
     });
 
     this.client.registerCallbackListener(TOPIC_ROBOT, async (msg: DWClientDownStream) => {
@@ -160,8 +186,65 @@ export class DingtalkStreamService {
     this.lastHeartbeatTime = time ?? Date.now();
   }
 
+  /**
+   * 处理断开连接事件 - 自动重连
+   */
+  private handleDisconnect(): void {
+    if (this.isManualDisconnect) {
+      return;
+    }
+    
+    this.reconnectAttempts++;
+    
+    if (this.reconnectAttempts > this.maxReconnectAttempts) {
+      console.error(`[Stream] ❌ 重连次数超过限制 (${this.maxReconnectAttempts}次)，停止重连`);
+      console.error('[Stream] 请检查网络连接或钉钉配置，然后手动重启服务');
+      
+      // 发送告警
+      if (isAlertEnabled()) {
+        notifyError('钉钉 Stream 连接失败', `已重连 ${this.reconnectAttempts} 次，均失败`).catch(() => {});
+      }
+      return;
+    }
+    
+    // 计算指数退避延迟
+    const baseDelay = config.stream.reconnectBaseDelay || 1000;
+    const maxDelay = config.stream.reconnectMaxDelay || 60000;
+    const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), maxDelay);
+    
+    console.log(`[Stream] 🔄 准备重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    console.log(`[Stream] ⏳ 等待 ${delay / 1000} 秒后重试...`);
+    
+    // 清除之前的重连定时器
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+    }
+    
+    // 设置重连定时器
+    this.reconnectTimer = setTimeout(async () => {
+      console.log(`[Stream] 🔄 执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+      
+      try {
+        await this.start();
+        console.log(`[Stream] ✅ 重连成功！`);
+      } catch (error) {
+        console.error(`[Stream] ❌ 重连失败:`, error instanceof Error ? error.message : error);
+        // handleDisconnect 会通过 close 事件被再次调用
+      }
+    }, delay);
+  }
+
   async stop(): Promise<void> {
     console.log('[Stream] Stopping service...');
+    
+    // 标记为手动断开，不进行重连
+    this.isManualDisconnect = true;
+    
+    // 清除重连定时器
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -184,6 +267,7 @@ export class DingtalkStreamService {
 
     this.isConnected = false;
     this.pendingMessages.clear();
+    this.reconnectAttempts = 0;
     console.log('[Stream] Service stopped');
   }
 
@@ -198,6 +282,10 @@ export class DingtalkStreamService {
     if (this.heartbeatMonitorTimer) {
       clearInterval(this.heartbeatMonitorTimer);
       this.heartbeatMonitorTimer = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
   }
 
@@ -514,6 +602,8 @@ export class DingtalkStreamService {
       pendingMessages: this.pendingMessages.size,
       healthySessions: this.getHealthySessionCount(),
       failedSessions: this.getFailedSessionCount(),
+      reconnectAttempts: this.reconnectAttempts,
+      maxReconnectAttempts: this.maxReconnectAttempts,
     };
   }
 

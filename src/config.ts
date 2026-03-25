@@ -56,6 +56,8 @@ interface MessageQueueConfig {
 interface StreamConfig {
   enabled: boolean;
   maxReconnectAttempts: number;
+  reconnectBaseDelay: number;
+  reconnectMaxDelay: number;
 }
 
 interface PollingConfig {
@@ -114,12 +116,15 @@ export const config = {
 
   stream: {
     enabled: process.env.STREAM_ENABLED !== 'false',
-    maxReconnectAttempts: parseInt(process.env.STREAM_MAX_RECONNECT || '5', 10),
+    maxReconnectAttempts: parseInt(process.env.STREAM_MAX_RECONNECT || '10', 10),
+    reconnectBaseDelay: parseInt(process.env.STREAM_RECONNECT_BASE_DELAY || '1000', 10),
+    reconnectMaxDelay: parseInt(process.env.STREAM_RECONNECT_MAX_DELAY || '60000', 10),
   } as StreamConfig,
 
+  // 轮询模式已禁用，仅保留配置接口
   polling: {
-    enabled: process.env.POLLING_ENABLED !== 'false',
-    interval: parseInt(process.env.POLLING_INTERVAL || '3000', 10),
+    enabled: false,
+    interval: 3000,
   } as PollingConfig,
 };
 
@@ -145,7 +150,7 @@ export function validateConfig(): void {
   console.log(`   - 最大历史消息：${config.session.maxHistoryMessages}`);
   console.log(`   - 用户最大并发：${config.messageQueue.maxConcurrentPerUser}`);
   console.log(`   - ${aiProviderName} 超时：${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout} / 1000 秒`);
-  console.log(`   - Stream 模式：${config.stream.enabled ? '启用' : '禁用'}`);
+  console.log(`   - Stream 模式：启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
 }
 
 // 导出配置验证函数供启动时调用

@@ -32,6 +32,8 @@ module.exports = {
       // 环境变量
       env: {
         NODE_ENV: 'production',
+        NO_PROXY: 'dingtalk.com,wss-open-connection.dingtalk.com,api.dingtalk.com',
+        no_proxy: 'dingtalk.com,wss-open-connection.dingtalk.com,api.dingtalk.com',
       },
       env_development: {
         NODE_ENV: 'development',
