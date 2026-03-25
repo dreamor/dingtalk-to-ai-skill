@@ -4,8 +4,8 @@
  * 核心功能：
  * 1. 初始化各模块（会话管理、消息队列、流量控制等）
  * 2. 启动 Gateway HTTP 服务
- * 3. 启动 Stream 模式或轮询模式接收钉钉消息
- * 4. 处理消息并调用 OpenCode CLI
+ * 3. 启动 Stream 模式接收钉钉消息
+ * 4. 处理消息并调用 AI CLI
  */
 import { config, validateConfig } from './config';
 import { DingtalkService } from './dingtalk/dingtalk';
@@ -15,7 +15,6 @@ import { SessionManager } from './session-manager';
 import { MessageQueue, RateLimiter, ConcurrencyController } from './message-queue';
 import { MessageDeduplicator } from './utils/dedupCache';
 import { OpenCodeExecutor } from './opencode';
-import { PollingService } from './polling';
 import { 
   notifyServiceStart, 
   notifyServiceStop, 
@@ -27,7 +26,6 @@ import { enableGlobalSanitize } from './utils/logger';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
-let globalPollingService: PollingService | null = null;
 let globalGateway: GatewayServer | null = null;
 let globalSessionManager: SessionManager | null = null;
 
@@ -121,139 +119,82 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 启动 Stream 模式（推荐！无需内网穿透）
-  if (config.stream.enabled) {
-    console.log('\n🌊 启动 Stream 模式（钉钉官方推荐，无需内网穿透）...');
-    
-    const streamService = new DingtalkStreamService();
-    globalStreamService = streamService;
-    
-    // 设置消息处理器
-    streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {
-      const startTime = Date.now();
-      console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
-      console.log(`[Stream] conversationId: ${conversationId}`);
-      console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
-      
-      try {
-        // 使用超时包装消息处理，防止长时间阻塞
-        const processingTimeout = config.ai.timeout + 10000; // AI 超时 + 10秒缓冲
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)), processingTimeout);
-        });
-        
-        // 所有消息直接交给 OpenCode 处理
-        const result = await Promise.race([
-          gateway.processMessage({
-            msg: content,
-            userId,
-            userName,
-          }),
-          timeoutPromise
-        ]);
-        
-        const processingTime = Date.now() - startTime;
-        console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
-        
-        // 使用 sessionWebhook 发送回复
-        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
-        if (result.success && result.data?.result) {
-          await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
-          console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
-        } else if (!result.success) {
-          const errorMessage = `❌ ${result.message}`;
-          await streamService.sendTextMessage(conversationId, errorMessage);
-          console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
-        }
-      } catch (error) {
-        const processingTime = Date.now() - startTime;
-        console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
-        const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
-        
-        try {
-          await streamService.sendTextMessage(conversationId, errorMessage);
-        } catch (sendError) {
-          console.error('[Stream] 发送错误消息失败:', sendError);
-        }
-      }
-    });
-
-    try {
-      await streamService.start();
-      console.log('✅ Stream 模式已启动');
-      console.log('   - 无需内网穿透，钉钉会主动推送消息');
-      console.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
-      
-      // 绑定 Stream 服务到告警模块
-      setStreamService(streamService);
-      
-      // 发送服务启动通知
-      if (isAlertEnabled()) {
-        notifyServiceStart().catch(err => console.error('[Alert] 发送启动通知失败:', err));
-      }
-    } catch (error) {
-      console.error('❌ Stream 模式启动失败，将使用轮询模式:', error);
-      globalPollingService = await startPollingFallback(dingtalkService, gateway);
-    }
-  } else {
-    globalPollingService = await startPollingFallback(dingtalkService, gateway);
-  }
-}
-
-/**
- * 启动轮询回退模式
- */
-async function startPollingFallback(
-  dingtalkService: DingtalkService,
-  gateway: GatewayServer
-): Promise<PollingService> {
-  console.log('🔄 启动轮询模式...');
-
-  const pollingService = new PollingService(dingtalkService);
-
+  // 启动 Stream 模式（唯一模式）
+  console.log('\n🌊 启动 Stream 模式（钉钉官方推荐，无需内网穿透）...');
+  
+  const streamService = new DingtalkStreamService();
+  globalStreamService = streamService;
+  
   // 设置消息处理器
-  pollingService.setMessageHandler(async ({ messages }) => {
-    for (const message of messages) {
-      const userId = message.senderId || 'unknown';
-      const userName = message.senderNick || '用户';
-      const content = message.text?.content || '';
-
-      console.log(`[Polling] 收到消息：${userName}(${userId}): ${content}`);
-
-      try {
-        // 所有消息直接交给 OpenCode 处理
-        const result = await gateway.processMessage({
+  streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {
+    const startTime = Date.now();
+    console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
+    console.log(`[Stream] conversationId: ${conversationId}`);
+    console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
+    
+    try {
+      // 使用超时包装消息处理，防止长时间阻塞
+      const processingTimeout = config.ai.timeout + 10000; // AI 超时 + 10秒缓冲
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)), processingTimeout);
+      });
+      
+      // 所有消息直接交给 AI 处理
+      const result = await Promise.race([
+        gateway.processMessage({
           msg: content,
           userId,
           userName,
-        });
-
-        // 发送回复
-        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
-        if (result.success && result.data?.result) {
-          const accessToken = await dingtalkService.getAccessToken();
-          await dingtalkService.sendMarkdownMessage(
-            accessToken,
-            replyTitle,
-            result.data.result
-          );
-          console.log('[Polling] ✅ 回复发送成功');
-        } else if (!result.success) {
-          const accessToken = await dingtalkService.getAccessToken();
-          await dingtalkService.sendTextMessage(
-            accessToken,
-            `❌ ${result.message}`
-          );
-        }
-      } catch (error) {
-        console.error('[Polling] 消息处理失败:', error);
+        }),
+        timeoutPromise
+      ]);
+      
+      const processingTime = Date.now() - startTime;
+      console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
+      
+      // 使用 sessionWebhook 发送回复
+      const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
+      if (result.success && result.data?.result) {
+        await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
+        console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
+      } else if (!result.success) {
+        const errorMessage = `❌ ${result.message}`;
+        await streamService.sendTextMessage(conversationId, errorMessage);
+        console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
+      }
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
+      const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
+      
+      try {
+        await streamService.sendTextMessage(conversationId, errorMessage);
+      } catch (sendError) {
+        console.error('[Stream] 发送错误消息失败:', sendError);
       }
     }
   });
 
-  await pollingService.start();
-  console.log('✅ 轮询模式已启动');
-  return pollingService;
+  // 启动 Stream 服务（内置重连机制）
+  try {
+    await streamService.start();
+    console.log('✅ Stream 模式已启动');
+    console.log('   - 无需内网穿透，钉钉会主动推送消息');
+    console.log(`   - 自动重连: 已启用 (最多 ${config.stream.maxReconnectAttempts} 次)`);
+    console.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
+    
+    // 绑定 Stream 服务到告警模块
+    setStreamService(streamService);
+    
+    // 发送服务启动通知
+    if (isAlertEnabled()) {
+      notifyServiceStart().catch(err => console.error('[Alert] 发送启动通知失败:', err));
+    }
+  } catch (error) {
+    console.error('❌ Stream 模式启动失败:', error);
+    console.error('   请检查网络连接和配置是否正确');
+    process.exit(1);
+  }
 }
 
 // 优雅关闭处理
@@ -268,17 +209,6 @@ async function cleanupResources(): Promise<void> {
       console.log('   ✅ Stream 服务已停止');
     } catch (error) {
       console.error('   ❌ 停止 Stream 服务时出错:', error);
-    }
-  }
-
-  // 停止轮询服务
-  if (globalPollingService) {
-    try {
-      console.log('   - 停止轮询服务...');
-      await globalPollingService.stop();
-      console.log('   ✅ 轮询服务已停止');
-    } catch (error) {
-      console.error('   ❌ 停止轮询服务时出错:', error);
     }
   }
 
