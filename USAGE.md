@@ -45,32 +45,40 @@ AI_PROVIDER=opencode
 **可选配置**：
 
 ```bash
-# Gateway 配置
+# ========== AI Provider 配置 ==========
+# OpenCode（默认）
+OPENCODE_COMMAND=opencode          # 自定义命令
+OPENCODE_TIMEOUT=120000            # 超时(毫秒)
+OPENCODE_MAX_RETRIES=3             # 最大重试次数
+OPENCODE_MODEL=                    # 模型名称，留空使用CLI默认
+OPENCODE_WORKING_DIR=/path/to/dir  # 工作目录
+
+# Claude Code
+CLAUDE_COMMAND=claude              # 自定义命令
+CLAUDE_TIMEOUT=120000              # 超时(毫秒)
+CLAUDE_MAX_RETRIES=3               # 最大重试次数
+CLAUDE_MODEL=                      # 模型名称，留空使用CLI默认
+CLAUDE_WORKING_DIR=/path/to/dir    # 工作目录
+
+# ========== Gateway 配置 ==========
 GATEWAY_PORT=3000
 GATEWAY_HOST=0.0.0.0
-GATEWAY_API_TOKEN=your_token  # 保护敏感接口
+GATEWAY_API_TOKEN=your_token       # 保护敏感接口
 
-# OpenCode 配置
-OPENCODE_MODEL=provider/model  # 模型名称，留空使用CLI默认
-
-# Claude Code 配置
-CLAUDE_MODEL=  # 模型名称，留空使用CLI默认
-
-# Stream 模式（推荐）
+# ========== Stream 模式配置 ==========
 STREAM_ENABLED=true
-STREAM_MAX_RECONNECT=5
+STREAM_MAX_RECONNECT=10
+STREAM_RECONNECT_BASE_DELAY=1000   # 重连基础延迟(毫秒)
+STREAM_RECONNECT_MAX_DELAY=60000   # 重连最大延迟(毫秒)
 
-# 轮询模式（备用）
-POLLING_ENABLED=true
-POLLING_INTERVAL=3000
-
-# 流量控制
+# ========== 消息队列配置 ==========
 MQ_MAX_CONCURRENT_PER_USER=3
+MQ_MAX_CONCURRENT_GLOBAL=10
 MQ_RATE_LIMIT_TOKENS=10
 
-# 会话管理
-SESSION_TTL=1800000
-SESSION_MAX_HISTORY=50
+# ========== 会话管理配置 ==========
+SESSION_TTL=1800000                # 会话超时(毫秒)
+SESSION_MAX_HISTORY=50             # 最大历史消息数
 ```
 
 ### 3. 启动应用
@@ -106,14 +114,11 @@ npm run dev
 - 使用 WebSocket 长连接接收消息
 - 无需内网穿透，钉钉主动推送消息
 - 消息延迟低（实时）
+- 支持自动重连
 
-### 轮询模式（备用）
+### 轮询模式（已禁用）
 
-- 主动定时拉取钉钉消息
-- 无需 WebSocket 长连接
-- 消息延迟约 3-5 秒
-
-系统默认优先使用 Stream 模式，连接失败时自动切换到轮询模式。
+轮询模式当前已禁用，系统仅支持 Stream 模式。
 
 ## 核心模块
 
