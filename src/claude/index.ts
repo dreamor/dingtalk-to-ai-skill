@@ -3,5 +3,5 @@ export {
   createClaudeCodeExecutor,
   type ClaudeCodeResult,
   type ClaudeCodeConfig,
-  type MessageContext,
 } from './executor';
+export type { MessageContext } from '../types/message';
