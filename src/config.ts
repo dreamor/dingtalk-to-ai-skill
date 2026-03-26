@@ -15,7 +15,7 @@ interface DingtalkConfig {
 interface GatewayConfig {
   port: number;
   host: string;
-  apiToken?: string;  // API 访问令牌
+  apiToken?: string; // API 访问令牌
 }
 
 type AIProvider = 'opencode' | 'claude';
@@ -24,11 +24,11 @@ interface AIConfig {
   command: string;
   timeout: number;
   maxRetries: number;
-  retryBaseDelay: number;  // 重试基础延迟（毫秒）
-  retryMaxDelay: number;   // 重试最大延迟（毫秒）
+  retryBaseDelay: number; // 重试基础延迟（毫秒）
+  retryMaxDelay: number; // 重试最大延迟（毫秒）
   workingDir?: string;
-  model: string;           // 模型名称
-  maxInputLength: number;  // 最大输入长度（字符）
+  model: string; // 模型名称
+  maxInputLength: number; // 最大输入长度（字符）
 }
 
 interface ClaudeCodeConfig {
@@ -58,11 +58,6 @@ interface StreamConfig {
   maxReconnectAttempts: number;
   reconnectBaseDelay: number;
   reconnectMaxDelay: number;
-}
-
-interface PollingConfig {
-  enabled: boolean;
-  interval: number;
 }
 
 // 主要配置对象
@@ -120,12 +115,6 @@ export const config = {
     reconnectBaseDelay: parseInt(process.env.STREAM_RECONNECT_BASE_DELAY || '1000', 10),
     reconnectMaxDelay: parseInt(process.env.STREAM_RECONNECT_MAX_DELAY || '60000', 10),
   } as StreamConfig,
-
-  // 轮询模式已禁用，仅保留配置接口
-  polling: {
-    enabled: false,
-    interval: 3000,
-  } as PollingConfig,
 };
 
 // 验证配置完整性
@@ -149,7 +138,9 @@ export function validateConfig(): void {
   console.log(`   - 会话 TTL: ${config.session.ttl / 1000 / 60} 分钟`);
   console.log(`   - 最大历史消息：${config.session.maxHistoryMessages}`);
   console.log(`   - 用户最大并发：${config.messageQueue.maxConcurrentPerUser}`);
-  console.log(`   - ${aiProviderName} 超时：${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout} / 1000 秒`);
+  console.log(
+    `   - ${aiProviderName} 超时：${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout} / 1000 秒`
+  );
   console.log(`   - Stream 模式：启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
 }
 

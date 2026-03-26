@@ -14,6 +14,7 @@
 ```
 
 或在 Claude Code 中直接运行：
+
 ```
 /plugin install https://github.com/dreamor/dingtalk-to-ai-skill
 ```
@@ -134,37 +135,37 @@ npm run dev  # 查看输出日志
 
 ## 配置说明
 
-| 变量                              | 说明                                | 默认值      |
-| --------------------------------- | ----------------------------------- | ----------- |
-| **钉钉配置**                      |                                     |             |
-| `DINGTALK_APP_KEY`                | 钉钉应用 Key                        | 必填        |
-| `DINGTALK_APP_SECRET`             | 钉钉应用 Secret                     | 必填        |
-| **AI 配置**                       |                                     |             |
-| `AI_PROVIDER`                     | AI CLI 类型 (opencode/claude)       | opencode    |
-| `OPENCODE_COMMAND`                | OpenCode 命令                       | opencode    |
-| `OPENCODE_TIMEOUT`                | OpenCode 超时(毫秒)                 | 120000      |
-| `OPENCODE_MAX_RETRIES`            | OpenCode 最大重试次数               | 3           |
-| `OPENCODE_MODEL`                  | OpenCode 模型名称                   | CLI 默认    |
-| `CLAUDE_COMMAND`                  | Claude Code 命令                    | claude      |
-| `CLAUDE_TIMEOUT`                  | Claude Code 超时(毫秒)              | 120000      |
-| `CLAUDE_MAX_RETRIES`              | Claude Code 最大重试次数            | 3           |
-| `CLAUDE_MODEL`                    | Claude Code 模型名称                | CLI 默认    |
-| **Gateway 配置**                  |                                     |             |
-| `GATEWAY_PORT`                    | 服务端口                            | 3000        |
-| `GATEWAY_HOST`                    | 服务主机                            | 0.0.0.0     |
-| `GATEWAY_API_TOKEN`               | API 访问令牌                        | 可选        |
-| **会话配置**                      |                                     |             |
-| `SESSION_TTL`                     | 会话超时(毫秒)                      | 1800000     |
-| `SESSION_MAX_HISTORY`             | 最大历史消息数                      | 50          |
-| **消息队列配置**                  |                                     |             |
-| `MQ_MAX_CONCURRENT_PER_USER`      | 每用户最大并发                      | 3           |
-| `MQ_MAX_CONCURRENT_GLOBAL`        | 全局最大并发                        | 10          |
-| `MQ_RATE_LIMIT_TOKENS`            | 令牌桶最大令牌数                    | 10          |
-| **Stream 配置**                   |                                     |             |
-| `STREAM_ENABLED`                  | 启用 Stream 模式                    | true        |
-| `STREAM_MAX_RECONNECT`            | 最大重连次数                        | 10          |
-| `STREAM_RECONNECT_BASE_DELAY`     | 重连基础延迟(毫秒)                  | 1000        |
-| `STREAM_RECONNECT_MAX_DELAY`      | 重连最大延迟(毫秒)                  | 60000       |
+| 变量                          | 说明                          | 默认值   |
+| ----------------------------- | ----------------------------- | -------- |
+| **钉钉配置**                  |                               |          |
+| `DINGTALK_APP_KEY`            | 钉钉应用 Key                  | 必填     |
+| `DINGTALK_APP_SECRET`         | 钉钉应用 Secret               | 必填     |
+| **AI 配置**                   |                               |          |
+| `AI_PROVIDER`                 | AI CLI 类型 (opencode/claude) | opencode |
+| `OPENCODE_COMMAND`            | OpenCode 命令                 | opencode |
+| `OPENCODE_TIMEOUT`            | OpenCode 超时(毫秒)           | 120000   |
+| `OPENCODE_MAX_RETRIES`        | OpenCode 最大重试次数         | 3        |
+| `OPENCODE_MODEL`              | OpenCode 模型名称             | CLI 默认 |
+| `CLAUDE_COMMAND`              | Claude Code 命令              | claude   |
+| `CLAUDE_TIMEOUT`              | Claude Code 超时(毫秒)        | 120000   |
+| `CLAUDE_MAX_RETRIES`          | Claude Code 最大重试次数      | 3        |
+| `CLAUDE_MODEL`                | Claude Code 模型名称          | CLI 默认 |
+| **Gateway 配置**              |                               |          |
+| `GATEWAY_PORT`                | 服务端口                      | 3000     |
+| `GATEWAY_HOST`                | 服务主机                      | 0.0.0.0  |
+| `GATEWAY_API_TOKEN`           | API 访问令牌                  | 可选     |
+| **会话配置**                  |                               |          |
+| `SESSION_TTL`                 | 会话超时(毫秒)                | 1800000  |
+| `SESSION_MAX_HISTORY`         | 最大历史消息数                | 50       |
+| **消息队列配置**              |                               |          |
+| `MQ_MAX_CONCURRENT_PER_USER`  | 每用户最大并发                | 3        |
+| `MQ_MAX_CONCURRENT_GLOBAL`    | 全局最大并发                  | 10       |
+| `MQ_RATE_LIMIT_TOKENS`        | 令牌桶最大令牌数              | 10       |
+| **Stream 配置**               |                               |          |
+| `STREAM_ENABLED`              | 启用 Stream 模式              | true     |
+| `STREAM_MAX_RECONNECT`        | 最大重连次数                  | 10       |
+| `STREAM_RECONNECT_BASE_DELAY` | 重连基础延迟(毫秒)            | 1000     |
+| `STREAM_RECONNECT_MAX_DELAY`  | 重连最大延迟(毫秒)            | 60000    |
 
 ## AI Provider 选择
 
@@ -185,13 +186,12 @@ npm run dev  # 查看输出日志
 
 ```
 src/
-├── dingtalk/          # 钉钉 SDK 集成 (Stream/Polling)
+├── dingtalk/          # 钉钉 SDK 集成 (Stream 模式)
 ├── gateway/           # HTTP 网关
 ├── opencode/          # OpenCode 执行器
 ├── claude/           # Claude Code 执行器
 ├── session-manager/   # 会话管理
 ├── message-queue/    # 消息队列 (并发控制/流量限制)
-├── polling/          # 轮询模式管理
 ├── types/            # TypeScript 类型定义
 └── utils/            # 工具函数
 

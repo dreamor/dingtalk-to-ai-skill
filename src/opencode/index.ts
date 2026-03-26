@@ -3,4 +3,5 @@
  */
 
 export { OpenCodeExecutor, createOpenCodeExecutor } from './executor';
-export type { OpenCodeResult, OpenCodeConfig, MessageContext } from './executor';
+export type { OpenCodeResult, OpenCodeConfig } from './executor';
+export type { MessageContext } from '../types/message';

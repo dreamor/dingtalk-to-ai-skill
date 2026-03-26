@@ -6,6 +6,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { config } from '../config';
 import { withRetry } from '../utils/retry';
+import type { MessageContext } from '../types/message';
 
 export interface OpenCodeResult {
   success: boolean;
@@ -26,12 +27,7 @@ export interface OpenCodeConfig {
   maxInputLength: number; // 最大输入长度
 }
 
-export interface MessageContext {
-  userId: string;
-  userName?: string;
-  conversationId?: string;
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-}
+// 消息上下文从 ../types/message 导入
 
 // 输入验证错误
 export class InputValidationError extends Error {

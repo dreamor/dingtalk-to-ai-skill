@@ -47,3 +47,13 @@ export interface SystemMessage extends Message {
  * 对话消息联合类型
  */
 export type ConversationMessage = UserMessage | AIMessage | SystemMessage;
+
+/**
+ * AI 执行上下文（OpenCode/Claude 通用）
+ */
+export interface MessageContext {
+  userId: string;
+  userName?: string;
+  conversationId?: string;
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
