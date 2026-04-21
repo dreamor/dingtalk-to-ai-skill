@@ -27,6 +27,8 @@ export interface SessionConfig {
   ttl: number;
   /** 最大历史消息数 */
   maxHistoryMessages: number;
+  /** 最大会话数（用于内存限制） */
+  maxSessions: number;
 }
 
 /**
@@ -98,4 +100,5 @@ export interface HistoryManager {
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   ttl: 30 * 60 * 1000, // 30 分钟
   maxHistoryMessages: 50,
+  maxSessions: 1000,
 };

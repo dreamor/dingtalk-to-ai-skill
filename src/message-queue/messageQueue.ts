@@ -98,8 +98,8 @@ export class MessageQueue {
       processing: false,
     };
 
-    this.queue.push(queued);
-    this.sortByPriority();
+    // 使用二分插入代替全量排序
+    this.insertByPriority(queued);
 
     // 如果启用持久化，保存到 SQLite
     if (this.enablePersistence && this.storage) {
@@ -233,7 +233,7 @@ export class MessageQueue {
   }
 
   /**
-   * 按优先级排序
+   * 按优先级排序（完整排序，用于初始化或批量操作）
    */
   private sortByPriority(): void {
     const priorityOrder: Record<MessagePriority, number> = {
@@ -250,6 +250,36 @@ export class MessageQueue {
       // 同优先级按入队时间排序
       return a.enqueueTime - b.enqueueTime;
     });
+  }
+
+  /**
+   * 二分插入（O(n) 插入，比全量排序 O(n log n) 更高效）
+   */
+  private insertByPriority(message: QueuedMessage): void {
+    const priorityOrder: Record<MessagePriority, number> = {
+      high: 0,
+      normal: 1,
+      low: 2,
+    };
+    const priority = priorityOrder[message.priority];
+    const enqueueTime = message.enqueueTime;
+
+    // 二分查找插入位置
+    let left = 0,
+      right = this.queue.length;
+    while (left < right) {
+      const mid = Math.floor((left + right) / 2);
+      const midPriority = priorityOrder[this.queue[mid].priority];
+      const midTime = this.queue[mid].enqueueTime;
+
+      // 优先级低的排在后面，同优先级按时间排
+      if (midPriority > priority || (midPriority === priority && midTime > enqueueTime)) {
+        right = mid;
+      } else {
+        left = mid + 1;
+      }
+    }
+    this.queue.splice(left, 0, message);
   }
 
   /**

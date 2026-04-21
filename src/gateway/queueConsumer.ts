@@ -12,6 +12,7 @@ import { OpenCodeExecutor, MessageContext } from '../opencode';
 import { ClaudeCodeExecutor } from '../claude';
 import { UserMessage, AIMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
+import { buildHistory } from '../utils/historyBuilder';
 import { config } from '../config';
 import { formatError, getCLIInstallSuggestion } from './errorFormatter';
 
@@ -32,7 +33,11 @@ export interface ProcessResult {
 /**
  * 消息处理器类型
  */
-export type MessageProcessor = (msg: string, userId: string, userName: string) => Promise<ProcessResult>;
+export type MessageProcessor = (
+  msg: string,
+  userId: string,
+  userName: string
+) => Promise<ProcessResult>;
 
 /**
  * 队列消费者配置
@@ -43,7 +48,7 @@ export interface QueueConsumerConfig {
 }
 
 const DEFAULT_CONFIG: QueueConsumerConfig = {
-  pollInterval: 100,  // 100ms
+  pollInterval: 100, // 100ms
   batchSize: 5,
 };
 
@@ -154,22 +159,22 @@ export class QueueConsumer {
    */
   private async processQueuedMessage(queuedMsg: QueuedMessage): Promise<void> {
     const { message, retryCount } = queuedMsg;
-    
+
     try {
       console.log(`[QueueConsumer] 处理消息：${message.content.substring(0, 50)}...`);
-      
+
       if (this.messageHandler) {
         await this.messageHandler(message.content, message.userId, message.username || '用户');
       } else {
         await this.processMessageInternal(message);
       }
-      
+
       this.queue.complete(message.id);
       console.log(`[QueueConsumer] 消息处理完成: ${message.id}`);
     } catch (error) {
       console.error(`[QueueConsumer] 消息处理失败: ${message.id}`, error);
       this.queue.fail(message.id);
-      
+
       if (retryCount >= 3) {
         console.error(`[QueueConsumer] 消息重试次数过多，将丢弃: ${message.id}`);
       }
@@ -224,9 +229,10 @@ export class QueueConsumer {
       console.error(`[QueueConsumer] 获取并发槽位失败:`, error);
       return {
         success: false,
-        message: error instanceof Error && error.message.includes('超时')
-          ? '系统繁忙，请稍后重试'
-          : '系统资源不足，请稍后重试',
+        message:
+          error instanceof Error && error.message.includes('超时')
+            ? '系统繁忙，请稍后重试'
+            : '系统资源不足，请稍后重试',
       };
     }
 
@@ -248,7 +254,7 @@ export class QueueConsumer {
       // 8. 根据配置的 AI Provider 调用相应的 CLI
       const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
       let result;
-      
+
       if (config.aiProvider === 'claude') {
         result = await this.claudeCodeExecutor.execute(message.content, context);
       } else {
@@ -257,11 +263,15 @@ export class QueueConsumer {
 
       // 9. 生成用户消息
       let responseContent: string;
-      
+
       if (result.success && result.output) {
         responseContent = result.output;
       } else if (result.error) {
-        if (result.error.includes('未安装') || result.error.includes('找不到命令') || result.error.includes('ENOENT')) {
+        if (
+          result.error.includes('未安装') ||
+          result.error.includes('找不到命令') ||
+          result.error.includes('ENOENT')
+        ) {
           responseContent = getCLIInstallSuggestion(config.aiProvider);
         } else {
           responseContent = formatError(result.error, messageId);
@@ -306,15 +316,10 @@ export class QueueConsumer {
   /**
    * 构建对话历史
    */
-  private async buildHistory(conversationId: string): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
-    const messages = await this.sessionManager.getHistory(conversationId, 20);
-    
-    return messages
-      .filter(msg => msg.type === 'user' || msg.type === 'ai')
-      .map(msg => ({
-        role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
-        content: msg.content,
-      }));
+  private async buildHistory(
+    conversationId: string
+  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+    return buildHistory(this.sessionManager, conversationId, 20);
   }
 
   /**

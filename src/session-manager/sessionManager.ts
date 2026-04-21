@@ -63,6 +63,9 @@ export class SessionManager {
    * 创建新会话
    */
   async createSession(userId: string): Promise<Session> {
+    // 检查并强制执行容量限制
+    this.enforceCapacityLimit();
+
     const conversationId = generateConversationId();
     const now = Date.now();
 
@@ -91,6 +94,27 @@ export class SessionManager {
   }
 
   /**
+   * 强制执行容量限制（LRU 淘汰）
+   */
+  private enforceCapacityLimit(): void {
+    const sessionIds = Object.keys(this.sessions);
+    if (sessionIds.length >= this.sessionConfig.maxSessions) {
+      // 按最后活动时间排序，淘汰最老的会话
+      const sorted = sessionIds
+        .filter(id => this.sessions[id].state === SessionState.Active)
+        .sort((a, b) => this.sessions[a].lastActivityAt - this.sessions[b].lastActivityAt);
+
+      const toRemove = sorted.slice(0, sessionIds.length - this.sessionConfig.maxSessions + 1);
+      for (const id of toRemove) {
+        delete this.sessions[id];
+      }
+      if (toRemove.length > 0) {
+        console.log(`[SessionManager] 达到容量限制，淘汰 ${toRemove.length} 个最老会话`);
+      }
+    }
+  }
+
+  /**
    * 获取会话
    */
   async getSession(conversationId: string): Promise<Session | null> {
@@ -103,7 +127,7 @@ export class SessionManager {
   async getOrCreateSession(userId: string): Promise<Session> {
     // 查找用户的活跃会话
     const activeSession = Object.values(this.sessions).find(
-      (s) => s.userId === userId && s.state === SessionState.Active
+      s => s.userId === userId && s.state === SessionState.Active
     );
 
     if (activeSession) {
@@ -168,7 +192,10 @@ export class SessionManager {
   /**
    *结束会话
    */
-  async endSession(conversationId: string, state: SessionState = SessionState.Terminated): Promise<void> {
+  async endSession(
+    conversationId: string,
+    state: SessionState = SessionState.Terminated
+  ): Promise<void> {
     const session = await this.getSession(conversationId);
     if (session) {
       session.state = state;
@@ -199,9 +226,9 @@ export class SessionManager {
 
     const { messages } = session.context;
     const recentMessages = messages.slice(-this.sessionConfig.maxHistoryMessages);
-    
+
     return recentMessages
-      .map((msg) => `${msg.type === 'user' ? '用户' : 'AI'}: ${msg.content}`)
+      .map(msg => `${msg.type === 'user' ? '用户' : 'AI'}: ${msg.content}`)
       .join('\n');
   }
 

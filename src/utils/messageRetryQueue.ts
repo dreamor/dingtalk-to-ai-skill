@@ -2,37 +2,39 @@
  * 消息重试队列
  * 确保每条消息都能成功发送
  */
+import { calculateDelay } from './retry';
+
 export type MessageType = 'text' | 'markdown';
 
 export interface QueuedMessage {
   id: string;
   conversationId: string;
   type: MessageType;
-  content: string;           // text: content, markdown: text
-  title?: string;            // markdown 标题
-  mentionList?: string[];    // @ 用户列表
-  retryCount: number;        // 当前重试次数
-  maxRetries: number;        // 最大重试次数
-  createdAt: number;         // 创建时间
-  lastAttemptAt?: number;    // 上次尝试时间
-  error?: string;            // 最后错误信息
+  content: string; // text: content, markdown: text
+  title?: string; // markdown 标题
+  mentionList?: string[]; // @ 用户列表
+  retryCount: number; // 当前重试次数
+  maxRetries: number; // 最大重试次数
+  createdAt: number; // 创建时间
+  lastAttemptAt?: number; // 上次尝试时间
+  error?: string; // 最后错误信息
   status: 'pending' | 'sending' | 'sent' | 'failed';
 }
 
 export class MessageRetryQueue {
   private queue: Map<string, QueuedMessage> = new Map();
   private maxRetries: number;
-  private baseDelay: number;  // 基础延迟（毫秒）
+  private baseDelay: number; // 基础延迟（毫秒）
   private cleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(options?: { maxRetries?: number; baseDelay?: number }) {
-    this.maxRetries = options?.maxRetries ?? 10;  // 默认最多重试 10 次
-    this.baseDelay = options?.baseDelay ?? 5000;  // 基础延迟 5 秒
+    this.maxRetries = options?.maxRetries ?? 10; // 默认最多重试 10 次
+    this.baseDelay = options?.baseDelay ?? 5000; // 基础延迟 5 秒
 
     // 启动定期清理
     this.cleanupInterval = setInterval(() => {
       this.cleanup();
-    }, 60 * 1000);  // 每分钟清理一次
+    }, 60 * 1000); // 每分钟清理一次
   }
 
   /**
@@ -59,7 +61,9 @@ export class MessageRetryQueue {
     };
 
     this.queue.set(id, message);
-    console.log(`[RetryQueue] 添加消息到队列: ${id} (类型: ${type}, 目标: ${conversationId.substring(0, 20)}...)`);
+    console.log(
+      `[RetryQueue] 添加消息到队列: ${id} (类型: ${type}, 目标: ${conversationId.substring(0, 20)}...)`
+    );
   }
 
   /**
@@ -68,7 +72,7 @@ export class MessageRetryQueue {
   getPending(): QueuedMessage[] {
     return Array.from(this.queue.values())
       .filter(msg => msg.status === 'pending')
-      .sort((a, b) => a.createdAt - b.createdAt);  // 按创建时间排序
+      .sort((a, b) => a.createdAt - b.createdAt); // 按创建时间排序
   }
 
   /**
@@ -110,7 +114,9 @@ export class MessageRetryQueue {
       } else {
         msg.status = 'pending';
         const delay = this.calculateDelay(msg.retryCount);
-        console.warn(`[RetryQueue] 消息发送失败，将在 ${delay / 1000}s 后重试: ${id}, 错误: ${error}`);
+        console.warn(
+          `[RetryQueue] 消息发送失败，将在 ${delay / 1000}s 后重试: ${id}, 错误: ${error}`
+        );
       }
     }
   }
@@ -133,17 +139,15 @@ export class MessageRetryQueue {
    * 获取失败消息列表
    */
   getFailedMessages(): QueuedMessage[] {
-    return Array.from(this.queue.values())
-      .filter(msg => msg.status === 'failed');
+    return Array.from(this.queue.values()).filter(msg => msg.status === 'failed');
   }
 
   /**
    * 计算延迟（指数退避）
    */
   private calculateDelay(retryCount: number): number {
-    // 指数退避: 5s, 10s, 20s, 40s, 80s... 最多 5 分钟
-    const delay = this.baseDelay * Math.pow(2, retryCount - 1);
-    return Math.min(delay, 5 * 60 * 1000);
+    // 使用共享的 calculateDelay 函数（无抖动，指数退避）
+    return calculateDelay(retryCount, this.baseDelay, 5 * 60 * 1000, true);
   }
 
   /**
@@ -162,7 +166,11 @@ export class MessageRetryQueue {
       }
 
       // 清理失败超过 24 小时的消息
-      if (msg.status === 'failed' && msg.lastAttemptAt && now - msg.lastAttemptAt > 24 * 60 * 60 * 1000) {
+      if (
+        msg.status === 'failed' &&
+        msg.lastAttemptAt &&
+        now - msg.lastAttemptAt > 24 * 60 * 60 * 1000
+      ) {
         this.queue.delete(id);
         cleaned++;
       }

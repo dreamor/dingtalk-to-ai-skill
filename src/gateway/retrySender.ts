@@ -2,6 +2,7 @@
  * 消息重试发送器
  * 负责管理发送失败的消息并自动重试
  */
+import { calculateDelay } from '../utils/retry';
 
 /**
  * 重试消息类型
@@ -38,8 +39,8 @@ export interface RetrySenderConfig {
 
 const DEFAULT_CONFIG: RetrySenderConfig = {
   maxRetries: 5,
-  baseDelay: 5000,      // 5 秒
-  maxDelay: 300000,     // 5 分钟
+  baseDelay: 5000, // 5 秒
+  maxDelay: 300000, // 5 分钟
   checkInterval: 10000, // 10 秒
   maxQueueSize: 1000,
 };
@@ -179,7 +180,9 @@ export class RetrySender {
       console.error(`[RetrySender] 消息发送失败，达到最大重试次数: ${id}`);
     } else {
       message.status = 'pending';
-      console.log(`[RetrySender] 消息将在重试后发送: ${id} (重试 ${message.retryCount}/${this.config.maxRetries})`);
+      console.log(
+        `[RetrySender] 消息将在重试后发送: ${id} (重试 ${message.retryCount}/${this.config.maxRetries})`
+      );
     }
   }
 
@@ -264,9 +267,8 @@ export class RetrySender {
    * 计算重试延迟
    */
   private calculateDelay(retryCount: number): number {
-    // 指数退避
-    const delay = this.config.baseDelay * Math.pow(2, retryCount);
-    return Math.min(delay, this.config.maxDelay);
+    // 使用共享的 calculateDelay 函数（指数退避）
+    return calculateDelay(retryCount, this.config.baseDelay, this.config.maxDelay, true);
   }
 
   /**

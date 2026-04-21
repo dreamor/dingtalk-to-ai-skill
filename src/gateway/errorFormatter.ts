@@ -3,10 +3,19 @@
  * 将技术错误转换为用户友好的消息
  */
 
+import {
+  ErrorType,
+  ERROR_MESSAGES,
+  SYSTEM_ERROR_MESSAGES,
+  CLI_INSTALL_SUGGESTIONS,
+  getRateLimitMessage,
+  BUSY_ERROR_MESSAGE,
+} from '../config/errorMessages';
+
 /**
- * 错误类型枚举
+ * 错误类型枚举（保持向后兼容）
  */
-export enum ErrorType {
+export enum ErrorTypeEnum {
   TIMEOUT = 'timeout',
   CLI_NOT_FOUND = 'cli_not_found',
   PERMISSION_DENIED = 'permission_denied',
@@ -17,6 +26,9 @@ export enum ErrorType {
   DUPLICATE_MESSAGE = 'duplicate_message',
   UNKNOWN = 'unknown',
 }
+
+// 保持向后兼容
+export { ErrorType };
 
 /**
  * 错误信息接口
@@ -116,9 +128,9 @@ export function formatError(
 ): string {
   const errorType = analyzeError(error);
   const pattern = ERROR_PATTERNS.find(p => p.type === errorType);
-  
+
   let result: string;
-  
+
   if (pattern) {
     result = `${pattern.title}\n\n${pattern.template}`;
     if (pattern.suggestion) {
@@ -129,12 +141,12 @@ export function formatError(
   } else {
     result = `❌ ${error}`;
   }
-  
+
   // 添加追踪 ID
   if (messageId) {
     result += `\n\n📋 追踪ID: ${messageId}`;
   }
-  
+
   return result;
 }
 
@@ -152,7 +164,7 @@ brew install anthropic/claude/claude
 
 或配置环境变量 CLAUDE_COMMAND 指定 claude 命令路径。`;
   }
-  
+
   return `⚠️ OpenCode CLI 未安装
 
 请先安装 OpenCode CLI:

@@ -46,6 +46,7 @@ export interface ClaudeCodeConfig {
 export interface SessionConfig {
   ttl: number;
   maxHistoryMessages: number;
+  maxSessions: number;
 }
 
 export interface MessageQueueConfig {
@@ -90,41 +91,44 @@ export class ConfigValidationError extends Error {
 function parseEnvNumber(key: string, defaultValue: number, min?: number, max?: number): number {
   const value = process.env[key];
   if (!value) return defaultValue;
-  
+
   const parsed = parseInt(value, 10);
   if (isNaN(parsed)) {
     console.warn(`[Config] ${key} 的值 "${value}" 不是有效数字，使用默认值 ${defaultValue}`);
     return defaultValue;
   }
-  
+
   if (min !== undefined && parsed < min) {
     console.warn(`[Config] ${key} 的值 ${parsed} 小于最小值 ${min}，使用最小值`);
     return min;
   }
-  
+
   if (max !== undefined && parsed > max) {
     console.warn(`[Config] ${key} 的值 ${parsed} 大于最大值 ${max}，使用最大值`);
     return max;
   }
-  
+
   return parsed;
 }
 
 function parseEnvString(key: string, defaultValue: string, allowedValues?: string[]): string {
   const value = process.env[key];
   if (!value) return defaultValue;
-  
+
   if (allowedValues && !allowedValues.includes(value)) {
     console.warn(`[Config] ${key} 的值 "${value}" 不在允许列表中，使用默认值 "${defaultValue}"`);
     return defaultValue;
   }
-  
+
   return value;
 }
 
 // ==================== 主要配置对象 ====================
 
-const aiProvider: AIProvider = parseEnvString('AI_PROVIDER', 'opencode', ['opencode', 'claude']) as AIProvider;
+const aiProvider: AIProvider = parseEnvString('AI_PROVIDER', 'opencode', [
+  'opencode',
+  'claude',
+]) as AIProvider;
 
 export const config = {
   // AI Provider 选择
@@ -166,6 +170,7 @@ export const config = {
   session: {
     ttl: parseEnvNumber('SESSION_TTL', 1800000, 60000, 86400000),
     maxHistoryMessages: parseEnvNumber('SESSION_MAX_HISTORY', 50, 10, 500),
+    maxSessions: parseEnvNumber('SESSION_MAX_SESSIONS', 1000, 100, 10000),
   } as SessionConfig,
 
   messageQueue: {
@@ -190,7 +195,12 @@ export const config = {
   } as StorageConfig,
 
   logging: {
-    level: parseEnvString('LOG_LEVEL', 'info', ['debug', 'info', 'warn', 'error']) as LoggingConfig['level'],
+    level: parseEnvString('LOG_LEVEL', 'info', [
+      'debug',
+      'info',
+      'warn',
+      'error',
+    ]) as LoggingConfig['level'],
     format: parseEnvString('LOG_FORMAT', 'pretty', ['json', 'pretty']) as LoggingConfig['format'],
     enableFile: process.env.LOG_ENABLE_FILE === 'true',
     filePath: process.env.LOG_FILE_PATH,
@@ -262,7 +272,9 @@ export function validateConfig(): void {
   console.log(`   - 用户最大并发: ${config.messageQueue.maxConcurrentPerUser}`);
   console.log(`   - 全局最大并发: ${config.messageQueue.maxConcurrentGlobal}`);
   console.log(`   - 队列轮询间隔: ${config.messageQueue.pollInterval}ms`);
-  console.log(`   - AI 超时: ${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout}ms`);
+  console.log(
+    `   - AI 超时: ${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout}ms`
+  );
   console.log(`   - 持久化存储: ${config.messageQueue.enablePersistence ? '启用' : '禁用'}`);
   console.log(`   - 日志级别: ${config.logging.level}`);
   console.log(`   - 日志格式: ${config.logging.format}`);

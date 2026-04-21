@@ -1,7 +1,7 @@
 /**
  * Gateway 服务模块 - 基于 Stream 模式的消息处理
  * 所有消息通过 Stream 连接接收，无需 Webhook 回调
- * 
+ *
  * 重构说明：
  * - 错误格式化逻辑移至 errorFormatter.ts
  * - 消息重试逻辑移至 retrySender.ts
@@ -21,7 +21,13 @@ import { config } from '../config';
 import { UserMessage, AIMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
 import { renderMarkdown } from '../utils/markdown';
-import { formatError, getCLIInstallSuggestion, formatRateLimitMessage, formatBusyMessage } from './errorFormatter';
+import { buildHistory } from '../utils/historyBuilder';
+import {
+  formatError,
+  getCLIInstallSuggestion,
+  formatRateLimitMessage,
+  formatBusyMessage,
+} from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
 
 // Gateway 依赖接口
@@ -69,10 +75,7 @@ export class GatewayServer {
   private consumerRunning: boolean = false;
   private consumerTimer: NodeJS.Timeout | null = null;
 
-  constructor(
-    dingtalkService: DingtalkService,
-    deps: GatewayDeps
-  ) {
+  constructor(dingtalkService: DingtalkService, deps: GatewayDeps) {
     this.app = express();
     this.dingtalkService = dingtalkService;
     this.openCodeExecutor = deps.openCodeExecutor || new OpenCodeExecutor();
@@ -91,7 +94,7 @@ export class GatewayServer {
 
     const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
     console.log(`✅ Gateway 已启用，所有消息将路由到 ${providerName}`);
-    
+
     this.setupMiddleware();
     this.setupRoutes();
     this.startConsumer();
@@ -105,7 +108,7 @@ export class GatewayServer {
     const sender: MessageSender = async (conversationId, content, title, mentionList) => {
       try {
         const accessToken = await this.dingtalkService.getAccessToken();
-        
+
         if (title) {
           await this.dingtalkService.sendMarkdownMessage(accessToken, title, content);
         } else {
@@ -296,11 +299,16 @@ export class GatewayServer {
   /**
    * 核心消息处理方法
    */
-  async processMessage(request: GatewayRequest, useQueue: boolean = false): Promise<GatewayResponse> {
+  async processMessage(
+    request: GatewayRequest,
+    useQueue: boolean = false
+  ): Promise<GatewayResponse> {
     const { msg, userId = 'unknown', userName = '用户' } = request;
 
     if (useQueue) {
-      console.log(`[Gateway] 接收到用户 ${userName}(${userId}) 的消息，加入队列：${msg.substring(0, 50)}...`);
+      console.log(
+        `[Gateway] 接收到用户 ${userName}(${userId}) 的消息，加入队列：${msg.substring(0, 50)}...`
+      );
 
       try {
         const userMessage: UserMessage = {
@@ -317,7 +325,7 @@ export class GatewayServer {
         };
 
         this.messageQueue.enqueue(userMessage, 'normal');
-        
+
         return {
           success: true,
           message: '消息已接收，正在处理中',
@@ -340,11 +348,7 @@ export class GatewayServer {
   /**
    * 处理来自 Stream 的消息并发送回复
    */
-  async handleStreamMessage(
-    msg: string,
-    userId: string,
-    userName: string
-  ): Promise<void> {
+  async handleStreamMessage(msg: string, userId: string, userName: string): Promise<void> {
     console.log(`[Gateway] 收到 Stream 消息：用户 ${userName}(${userId}) - ${msg}`);
 
     const maxRetries = 3;
@@ -375,8 +379,13 @@ export class GatewayServer {
           } catch (_sendError) {
             console.error(`[Gateway] 发送回复失败，添加到重试队列`);
             const queueId = generateMessageId();
-            this.retrySender.add(queueId, conversationId, 'markdown', markdownText, { title: replyTitle });
-            await this.dingtalkService.sendTextMessage(accessToken, '📬 您的消息已收到，回复正在发送中，请稍候...');
+            this.retrySender.add(queueId, conversationId, 'markdown', markdownText, {
+              title: replyTitle,
+            });
+            await this.dingtalkService.sendTextMessage(
+              accessToken,
+              '📬 您的消息已收到，回复正在发送中，请稍候...'
+            );
             return;
           }
         } else {
@@ -414,7 +423,10 @@ export class GatewayServer {
         this.retrySender.add(queueId, conversationId, 'text', errorMessage);
       }
 
-      await this.dingtalkService.sendTextMessage(accessToken, '⚠️ 消息处理遇到问题，系统将自动重试，请稍候查看回复。');
+      await this.dingtalkService.sendTextMessage(
+        accessToken,
+        '⚠️ 消息处理遇到问题，系统将自动重试，请稍候查看回复。'
+      );
     } catch (_sendError) {
       console.error('[Gateway] 发送错误回复失败:', _sendError);
     }
@@ -431,7 +443,7 @@ export class GatewayServer {
         resolve();
       });
 
-      this.server!.on('error', (error) => {
+      this.server!.on('error', error => {
         reject(error);
       });
     });
@@ -440,9 +452,9 @@ export class GatewayServer {
   async stop(): Promise<void> {
     this.stopConsumer();
     this.retrySender.stop();
-    
+
     if (this.server) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         this.server!.close(() => {
           console.log('🛑 Gateway 服务器已停止');
           resolve();
@@ -456,7 +468,7 @@ export class GatewayServer {
    */
   private startConsumer(): void {
     if (this.consumerRunning) return;
-    
+
     this.consumerRunning = true;
     console.log('[Gateway] 消息消费者已启动');
     this.consumeLoop();
@@ -486,7 +498,10 @@ export class GatewayServer {
       })
       .finally(() => {
         if (this.consumerRunning) {
-          this.consumerTimer = setTimeout(() => this.consumeLoop(), config.messageQueue.pollInterval);
+          this.consumerTimer = setTimeout(
+            () => this.consumeLoop(),
+            config.messageQueue.pollInterval
+          );
         }
       });
   }
@@ -500,22 +515,22 @@ export class GatewayServer {
 
     console.log(`[Gateway] 从队列中获取到 ${queuedMessages.length} 条消息`);
 
-    const processPromises = queuedMessages.map(async (queuedMsg) => {
+    const processPromises = queuedMessages.map(async queuedMsg => {
       const { message, retryCount } = queuedMsg;
-      
+
       try {
         console.log(`[Gateway] 处理队列消息：${message.content.substring(0, 50)}...`);
         await this.processMessageInternal({
           msg: message.content,
           userId: message.userId,
-          userName: message.username || '用户'
+          userName: message.username || '用户',
         });
         this.messageQueue.complete(message.id);
         console.log(`[Gateway] 队列消息处理完成: ${message.id}`);
       } catch (error) {
         console.error(`[Gateway] 处理队列消息失败: ${message.id}`, error);
         this.messageQueue.fail(message.id);
-        
+
         if (retryCount >= 3) {
           console.error(`[Gateway] 消息重试次数过多，将丢弃: ${message.id}`);
         }
@@ -630,7 +645,9 @@ export class GatewayServer {
         result = await this.openCodeExecutor.execute(msg, opencodeContext);
       }
 
-      console.log(`[${messageId}] ${providerName} 完成: success=${result.success}, time=${result.executionTime}ms`);
+      console.log(
+        `[${messageId}] ${providerName} 完成: success=${result.success}, time=${result.executionTime}ms`
+      );
 
       // 11. 处理结果
       let responseContent: string;
@@ -638,7 +655,11 @@ export class GatewayServer {
       if (result.success && result.output) {
         responseContent = result.output;
       } else if (result.error) {
-        if (result.error.includes('未安装') || result.error.includes('找不到命令') || result.error.includes('ENOENT')) {
+        if (
+          result.error.includes('未安装') ||
+          result.error.includes('找不到命令') ||
+          result.error.includes('ENOENT')
+        ) {
           responseContent = getCLIInstallSuggestion(config.aiProvider);
         } else {
           responseContent = formatError(result.error, messageId);
@@ -688,13 +709,6 @@ export class GatewayServer {
   private async buildHistoryForOpenCode(
     conversationId: string
   ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
-    const messages = await this.sessionManager.getHistory(conversationId, 20);
-    
-    return messages
-      .filter(msg => msg.type === 'user' || msg.type === 'ai')
-      .map(msg => ({
-        role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
-        content: msg.content,
-      }));
+    return buildHistory(this.sessionManager, conversationId, 20);
   }
 }
