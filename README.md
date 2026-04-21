@@ -139,77 +139,62 @@ npm run dev  # 查看输出日志
 
 ## 配置说明
 
-### 钉钉配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DINGTALK_APP_KEY` | 钉钉应用 Key | 必填 |
-| `DINGTALK_APP_SECRET` | 钉钉应用 Secret | 必填 |
-
-### AI 配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `AI_PROVIDER` | AI CLI 类型 (opencode/claude) | opencode |
-| `OPENCODE_COMMAND` | OpenCode 命令 | opencode |
-| `OPENCODE_TIMEOUT` | OpenCode 超时(毫秒) | 120000 |
-| `OPENCODE_MAX_RETRIES` | OpenCode 最大重试次数 | 3 |
-| `OPENCODE_MODEL` | OpenCode 模型名称 | CLI 默认 |
-| `CLAUDE_COMMAND` | Claude Code 命令 | claude |
-| `CLAUDE_TIMEOUT` | Claude Code 超时(毫秒) | 120000 |
-| `CLAUDE_MAX_RETRIES` | Claude Code 最大重试次数 | 3 |
-| `CLAUDE_MODEL` | Claude Code 模型名称 | CLI 默认 |
-
-### Gateway 配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `GATEWAY_PORT` | 服务端口 | 3000 |
-| `GATEWAY_HOST` | 服务主机 | 0.0.0.0 |
-| `GATEWAY_API_TOKEN` | API 访问令牌 | 可选 |
-
-### 会话配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `SESSION_TTL` | 会话超时(毫秒) | 1800000 |
-| `SESSION_MAX_HISTORY` | 最大历史消息数 | 50 |
-
-### 消息队列配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `MQ_MAX_CONCURRENT_PER_USER` | 每用户最大并发 | 3 |
-| `MQ_MAX_CONCURRENT_GLOBAL` | 全局最大并发 | 10 |
-| `MQ_RATE_LIMIT_TOKENS` | 令牌桶最大令牌数 | 10 |
-| `MQ_POLL_INTERVAL` | 队列轮询间隔(毫秒) | 100 |
-| `MQ_ENABLE_PERSISTENCE` | 启用持久化存储 | false |
-
-### 持久化存储配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `STORAGE_DB_PATH` | SQLite 数据库路径 | ./data/dingtalk.db |
-| `STORAGE_ENABLE_WAL` | 启用 WAL 模式 | true |
-| `STORAGE_CLEANUP_INTERVAL` | 清理间隔(毫秒) | 3600000 |
-
-### Stream 配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `STREAM_ENABLED` | 启用 Stream 模式 | true |
-| `STREAM_MAX_RECONNECT` | 最大重连次数 | 10 |
-| `STREAM_RECONNECT_BASE_DELAY` | 重连基础延迟(毫秒) | 1000 |
-| `STREAM_RECONNECT_MAX_DELAY` | 重连最大延迟(毫秒) | 60000 |
-
-### 日志配置
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `LOG_LEVEL` | 日志级别 (debug/info/warn/error) | info |
-| `LOG_FORMAT` | 日志格式 (json/pretty) | pretty |
-| `LOG_ENABLE_FILE` | 启用文件日志 | false |
-| `LOG_FILE_PATH` | 日志文件路径 | - |
+<!-- AUTO-GENERATED: Environment variables from .env.example -->
+| 变量                             | 说明                          | 默认值      |
+| -------------------------------- | ----------------------------- | ----------- |
+| **钉钉配置**                     |                                |             |
+| `DINGTALK_APP_KEY`               | 钉钉应用 Key (ClientID)        | 必填        |
+| `DINGTALK_APP_SECRET`            | 钉钉应用 Secret (ClientSecret) | 必填        |
+| **Gateway 配置**                 |                                |             |
+| `GATEWAY_PORT`                   | 服务端口                      | 3000        |
+| `GATEWAY_HOST`                   | 服务主机                      | 0.0.0.0     |
+| `GATEWAY_API_TOKEN`              | API 访问令牌                  | 可选        |
+| **AI 配置**                      |                                |             |
+| `AI_PROVIDER`                    | AI CLI 类型 (opencode/claude) | opencode    |
+| **OpenCode CLI 配置**            |                                |             |
+| `OPENCODE_COMMAND`               | OpenCode 命令                  | opencode    |
+| `OPENCODE_TIMEOUT`               | 执行超时(毫秒)                | 120000      |
+| `OPENCODE_MAX_RETRIES`           | 最大重试次数                  | 1           |
+| `OPENCODE_WORKING_DIR`           | 工作目录                      | 当前目录    |
+| `OPENCODE_MODEL`                 | 模型名称                      | CLI 默认    |
+| `OPENCODE_MAX_INPUT_LENGTH`      | 最大输入长度(字符)            | 10000       |
+| `OPENCODE_RETRY_BASE_DELAY`      | 基础重试延迟(毫秒)            | 1000        |
+| `OPENCODE_RETRY_MAX_DELAY`       | 最大重试延迟(毫秒)            | 10000       |
+| **Claude Code CLI 配置**         |                                |             |
+| `CLAUDE_COMMAND`                 | Claude Code 命令               | claude      |
+| `CLAUDE_TIMEOUT`                 | 执行超时(毫秒)                | 120000      |
+| `CLAUDE_MAX_RETRIES`             | 最大重试次数                  | 1           |
+| `CLAUDE_WORKING_DIR`             | 工作目录                      | 当前目录    |
+| `CLAUDE_MODEL`                   | 模型名称                      | CLI 默认    |
+| `CLAUDE_MAX_INPUT_LENGTH`        | 最大输入长度(字符)            | 10000       |
+| `CLAUDE_RETRY_BASE_DELAY`        | 基础重试延迟(毫秒)            | 1000        |
+| `CLAUDE_RETRY_MAX_DELAY`         | 最大重试延迟(毫秒)            | 10000       |
+| **会话管理配置**                 |                                |             |
+| `SESSION_TTL`                    | 会话生存时间(毫秒)            | 1800000     |
+| `SESSION_MAX_HISTORY`            | 最大历史消息数                | 50          |
+| **消息队列配置**                 |                                |             |
+| `MQ_MAX_CONCURRENT_PER_USER`     | 每用户最大并发                | 3           |
+| `MQ_MAX_CONCURRENT_GLOBAL`       | 全局最大并发                  | 10          |
+| `MQ_RATE_LIMIT_TOKENS`           | 令牌桶最大令牌数              | 10          |
+| **持久化存储配置**               |                                |             |
+| `STORAGE_DB_PATH`                | SQLite 数据库路径             | ./data/dingtalk.db |
+| `STORAGE_ENABLE_WAL`             | 启用 WAL 模式                 | true        |
+| `STORAGE_CLEANUP_INTERVAL`       | 清理间隔(毫秒)                | 3600000     |
+| **Stream 模式配置**              |                                |             |
+| `STREAM_ENABLED`                 | 启用 Stream 模式              | true        |
+| `STREAM_MAX_RECONNECT`           | 最大重连次数                  | 5           |
+| **轮询模式配置**                 |                                |             |
+| `POLLING_ENABLED`                | 启用轮询模式(降级方案)        | false       |
+| `POLLING_INTERVAL`               | 轮询间隔(毫秒)                | 3000        |
+| **告警通知配置**                 |                                |             |
+| `ALERT_ADMIN_USER_ID`            | 管理员用户 ID                  | -           |
+| `ALERT_MENTION_USERS`            | 告警 @ 用户(手机号,逗号分隔)  | -           |
+| `ALERT_MENTION_ALL`              | 告警 @ 所有人                 | false       |
+| **日志配置**                     |                                |             |
+| `LOG_LEVEL`                      | 日志级别                      | info        |
+| `LOG_FORMAT`                     | 日志格式 (json/pretty)        | pretty      |
+| `LOG_ENABLE_FILE`                | 启用文件日志                  | false       |
+<!-- AUTO-GENERATED END -->
 
 ## AI Provider 选择
 
@@ -260,12 +245,17 @@ docs/
 
 ## 开发命令
 
+<!-- AUTO-GENERATED: Scripts reference from package.json -->
 ```bash
-npm run build        # 编译 TypeScript
-npm run dev          # 开发模式
-npm test             # 运行测试
-npm run lint         # 代码检查
+npm run build          # 编译 TypeScript
+npm run start          # 运行生产构建
+npm run dev            # 开发模式 (ts-node)
+npm test               # 运行测试
+npm run test:coverage  # 运行测试并生成覆盖率报告
+npm run lint           # 代码检查
+npm run lint:fix       # 代码检查并自动修复
 ```
+<!-- AUTO-GENERATED END -->
 
 ## 更新日志
 
