@@ -166,8 +166,12 @@ export class DingtalkStreamService {
         const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
         if (timeSinceLastHeartbeat > this.heartbeatTimeout) {
           console.warn(
-            `[Stream] Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), connection may be lost`
+            `[Stream] Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), triggering reconnect...`
           );
+          // 心跳超时，主动触发重连
+          this.isConnected = false;
+          this.handleDisconnect();
+          return;
         }
       }
 
