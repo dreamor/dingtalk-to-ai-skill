@@ -29,7 +29,7 @@ export interface PersistedQueueMessage {
   id: string;
   conversationId: string;
   userId: string;
-  username: string;
+  username?: string;
   content: string;
   priority: string;
   status: string;
@@ -410,7 +410,9 @@ export class SQLiteStorage {
       ORDER BY timestamp DESC
       LIMIT ?
     `);
-    const keepIds = (keepStmt.all(conversationId, keepCount) as Array<{ id: string }>).map(r => r.id);
+    const keepIds = (keepStmt.all(conversationId, keepCount) as Array<{ id: string }>).map(
+      r => r.id
+    );
 
     if (keepIds.length === 0) return 0;
 
@@ -593,10 +595,18 @@ export class SQLiteStorage {
     retryQueue: number;
     dbSize: number;
   } {
-    const queueCount = this.db.prepare('SELECT COUNT(*) as count FROM queue_messages').get() as { count: number };
-    const sessionsCount = this.db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number };
-    const historyCount = this.db.prepare('SELECT COUNT(*) as count FROM message_history').get() as { count: number };
-    const retryCount = this.db.prepare('SELECT COUNT(*) as count FROM retry_queue').get() as { count: number };
+    const queueCount = this.db.prepare('SELECT COUNT(*) as count FROM queue_messages').get() as {
+      count: number;
+    };
+    const sessionsCount = this.db.prepare('SELECT COUNT(*) as count FROM sessions').get() as {
+      count: number;
+    };
+    const historyCount = this.db.prepare('SELECT COUNT(*) as count FROM message_history').get() as {
+      count: number;
+    };
+    const retryCount = this.db.prepare('SELECT COUNT(*) as count FROM retry_queue').get() as {
+      count: number;
+    };
 
     let dbSize = 0;
     try {
