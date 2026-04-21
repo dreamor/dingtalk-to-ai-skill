@@ -6,7 +6,7 @@ import { UserMessage } from '../types/message';
 
 export type MessagePriority = 'low' | 'normal' | 'high';
 
-interface QueuedMessage {
+export interface QueuedMessage {
   message: UserMessage;
   priority: MessagePriority;
   enqueueTime: number;
