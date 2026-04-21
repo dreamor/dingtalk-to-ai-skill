@@ -1,7 +1,5 @@
 # Dingtalk-to-AI-Skill
 
-> 当前版本: **v1.3.0**
-
 通过钉钉群聊远程控制本地 AI CLI（OpenCode 或 Claude Code），在手机上随时随地与 AI 编码助手交互。
 
 ## 安装 Skill
