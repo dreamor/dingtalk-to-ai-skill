@@ -1,101 +1,76 @@
 /**
- * 会话管理器
- * 负责创建、管理和维护用户会话
+ * 会话管理模块
+ * 负责管理用户对话会话，支持会话持久化和历史管理
  */
-import {
-  Session,
-  SessionState,
-  SessionConfig,
-  DEFAULT_SESSION_CONFIG,
-  SessionStorage,
-} from '../types/session';
-import { ConversationMessage } from '../types/message';
+import { Session, SessionState, SessionConfig, DEFAULT_SESSION_CONFIG } from '../types/session';
+import { ConversationMessage, UserMessage, AIMessage } from '../types/message';
+import { config } from '../config';
 import { generateConversationId } from '../utils/messageId';
 
 /**
- * 内存存储实现
+ * 内存中的会话存储
  */
-class MemorySessionStorage implements SessionStorage {
-  private sessions: Map<string, Session> = new Map();
-
-  async create(session: Session): Promise<void> {
-    this.sessions.set(session.conversationId, session);
-  }
-
-  async get(conversationId: string): Promise<Session | null> {
-    return this.sessions.get(conversationId) ?? null;
-  }
-
-  async update(session: Session): Promise<void> {
-    this.sessions.set(session.conversationId, session);
-  }
-
-  async delete(conversationId: string): Promise<void> {
-    this.sessions.delete(conversationId);
-  }
-
-  async getByUser(userId: string): Promise<Session[]> {
-    return Array.from(this.sessions.values()).filter(
-      (session) => session.userId === userId
-    );
-  }
-
-  async getExpired(before: number): Promise<Session[]> {
-    return Array.from(this.sessions.values()).filter(
-      (session) => session.expiresAt && session.expiresAt < before
-    );
-  }
-
-  async getAll(): Promise<Session[]> {
-    return Array.from(this.sessions.values());
-  }
+interface SessionStore {
+  [conversationId: string]: Session;
 }
 
 /**
- * 会话管理器主类
+ * 会话管理器选项
+ */
+export interface SessionManagerOptions {
+  config?: Partial<SessionConfig>;
+  autoCleanup?: boolean;
+  cleanupInterval?: number;
+}
+
+/**
+ * 会话统计信息
+ */
+export interface SessionStats {
+  total: number;
+  active: number;
+  idle: number;
+  expired: number;
+  terminated: number;
+}
+
+/**
+ * 会话管理器
  */
 export class SessionManager {
-  private storage: SessionStorage;
-  private defaultConfig: SessionConfig;
-  private cleanupInterval?: NodeJS.Timeout;
+  private sessions: SessionStore = {};
+  private sessionConfig: SessionConfig;
+  private autoCleanup: boolean;
+  private cleanupInterval: number;
+  private cleanupTimer?: NodeJS.Timeout;
 
-  constructor(options?: {
-    storage?: SessionStorage;
-    config?: Partial<SessionConfig>;
-    autoCleanup?: boolean;
-    cleanupInterval?: number;
-  }) {
-    const {
-      storage = new MemorySessionStorage(),
-      config = {},
-      autoCleanup = true,
-      cleanupInterval = 60000,
-    } = options ?? {};
+  constructor(options: SessionManagerOptions = {}) {
+    this.sessionConfig = {
+      ...DEFAULT_SESSION_CONFIG,
+      ttl: config.session.ttl,
+      maxHistoryMessages: config.session.maxHistoryMessages,
+      ...options.config,
+    };
+    this.autoCleanup = options.autoCleanup ?? true;
+    this.cleanupInterval = options.cleanupInterval ?? 60000;
 
-    this.storage = storage;
-    this.defaultConfig = { ...DEFAULT_SESSION_CONFIG, ...config };
-
-    if (autoCleanup) {
-      this.startCleanupService(cleanupInterval);
+    if (this.autoCleanup) {
+      this.startCleanupService();
     }
   }
 
   /**
    * 创建新会话
    */
-  async createSession(
-    userId: string,
-    config?: Partial<SessionConfig>
-  ): Promise<Session> {
+  async createSession(userId: string): Promise<Session> {
     const conversationId = generateConversationId();
-    const sessionConfig = { ...this.defaultConfig, ...config };
     const now = Date.now();
 
     const session: Session = {
       conversationId,
       userId,
       state: SessionState.Active,
-      config: sessionConfig,
+      config: this.sessionConfig,
       context: {
         conversationId,
         messages: [],
@@ -107,10 +82,9 @@ export class SessionManager {
       },
       createdAt: now,
       lastActivityAt: now,
-      expiresAt: now + sessionConfig.ttl,
     };
 
-    await this.storage.create(session);
+    this.sessions[conversationId] = session;
     console.log(`✅ 创建会话：${conversationId} (用户：${userId})`);
 
     return session;
@@ -120,39 +94,25 @@ export class SessionManager {
    * 获取会话
    */
   async getSession(conversationId: string): Promise<Session | null> {
-    const session = await this.storage.get(conversationId);
-
-    if (!session) {
-      return null;
-    }
-
-    // 检查是否过期
-    if (session.state === SessionState.Expired) {
-      console.log(`⚠️ 会话已过期：${conversationId}`);
-      return null;
-    }
-
-    // 检查 TTL
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      await this.endSession(conversationId, SessionState.Expired);
-      return null;
-    }
-
-    return session;
+    return this.sessions[conversationId] || null;
   }
 
   /**
    * 获取或创建会话
    */
   async getOrCreateSession(userId: string): Promise<Session> {
-    // 获取用户最近的活跃会话
-    const sessions = await this.storage.getByUser(userId);
-    const activeSession = sessions.find(
-      (s) => s.state === SessionState.Active && s.expiresAt && s.expiresAt > Date.now()
+    // 查找用户的活跃会话
+    const activeSession = Object.values(this.sessions).find(
+      (s) => s.userId === userId && s.state === SessionState.Active
     );
 
     if (activeSession) {
-      return activeSession;
+      // 检查是否过期
+      if (Date.now() - activeSession.lastActivityAt < this.sessionConfig.ttl) {
+        return activeSession;
+      }
+      // 标记为过期
+      activeSession.state = SessionState.Expired;
     }
 
     // 创建新会话
@@ -164,88 +124,68 @@ export class SessionManager {
    */
   async updateSession(session: Session): Promise<void> {
     session.lastActivityAt = Date.now();
-    session.expiresAt = session.lastActivityAt + session.config.ttl;
-
-    if (session.state !== SessionState.Terminated) {
-      session.state = SessionState.Active;
-    }
-
-    await this.storage.update(session);
+    session.context.metadata.lastActivityAt = Date.now();
+    this.sessions[session.conversationId] = session;
   }
 
   /**
-   * 结束会话
+   * 添加消息到会话历史
    */
-  async endSession(
-    conversationId: string,
-    state: SessionState = SessionState.Terminated
-  ): Promise<void> {
-    const session = await this.storage.get(conversationId);
-    if (session) {
-      session.state = state;
-      await this.storage.update(session);
-      console.log(`📋 会话结束：${conversationId} (${state})`);
-    }
-  }
-
-  /**
-   * 添加消息到会话
-   */
-  async addMessage(
-    conversationId: string,
-    message: ConversationMessage
-  ): Promise<void> {
+  async addMessage(conversationId: string, message: ConversationMessage): Promise<void> {
     const session = await this.getSession(conversationId);
     if (!session) {
-      throw new Error(`会话不存在：${conversationId}`);
+      throw new Error(`Session not found: ${conversationId}`);
     }
 
-    // 添加消息
     session.context.messages.push(message);
-    session.context.metadata.messageCount++;
-    session.context.metadata.lastActivityAt = Date.now();
+    session.context.metadata.messageCount = session.context.messages.length;
 
-    // 检查是否需要裁剪
-    if (
-      session.context.messages.length > session.config.maxHistoryMessages
-    ) {
-      await this.trimMessages(session);
+    // 裁剪历史消息
+    if (session.context.messages.length > this.sessionConfig.maxHistoryMessages) {
+      this.trimMessages(session);
     }
 
     await this.updateSession(session);
   }
 
   /**
-   * 裁剪消息历史
-   */
-  private async trimMessages(session: Session): Promise<void> {
-    const { maxHistoryMessages } = session.config;
-    const messages = session.context.messages;
-
-    if (messages.length <= maxHistoryMessages) {
-      return;
-    }
-
-    // 保留最新的消息
-    session.context.messages = messages.slice(-maxHistoryMessages);
-    console.log(
-      `📝 裁剪消息历史：${session.conversationId} (${messages.length} -> ${maxHistoryMessages})`
-    );
-  }
-
-  /**
    * 获取会话历史
    */
-  async getHistory(
-    conversationId: string,
-    limit: number = 20
-  ): Promise<ConversationMessage[]> {
+  async getHistory(conversationId: string, limit?: number): Promise<ConversationMessage[]> {
     const session = await this.getSession(conversationId);
     if (!session) {
       return [];
     }
 
-    return session.context.messages.slice(-limit);
+    const messages = session.context.messages;
+    if (limit && messages.length > limit) {
+      return messages.slice(-limit);
+    }
+
+    return messages;
+  }
+
+  /**
+   *结束会话
+   */
+  async endSession(conversationId: string, state: SessionState = SessionState.Terminated): Promise<void> {
+    const session = await this.getSession(conversationId);
+    if (session) {
+      session.state = state;
+      console.log(`📋 会话结束：${conversationId} (${state})`);
+    }
+  }
+
+  /**
+   * 裁剪消息历史
+   */
+  private trimMessages(session: Session): void {
+    const maxMessages = this.sessionConfig.maxHistoryMessages;
+    if (session.context.messages.length > maxMessages) {
+      const removed = session.context.messages.length - maxMessages;
+      session.context.messages = session.context.messages.slice(-maxMessages);
+      console.log(`📝 裁剪消息历史：${session.conversationId} (${removed} 条)`);
+    }
   }
 
   /**
@@ -257,20 +197,10 @@ export class SessionManager {
       return '';
     }
 
-    const { messages, summary } = session.context;
-
-    // 如果有摘要，使用摘要 + 最新消息
-    if (summary && messages.length > session.config.summaryThreshold) {
-      const recentMessages = messages.slice(-session.config.summaryThreshold);
-      const recentText = recentMessages
-        .map((msg) => `${msg.type}: ${msg.content}`)
-        .join('\n');
-
-      return `[对话摘要]\n${summary}\n\n[最近对话]\n${recentText}`;
-    }
-
-    // 否则使用全部消息
-    return messages
+    const { messages } = session.context;
+    const recentMessages = messages.slice(-this.sessionConfig.maxHistoryMessages);
+    
+    return recentMessages
       .map((msg) => `${msg.type === 'user' ? '用户' : 'AI'}: ${msg.content}`)
       .join('\n');
   }
@@ -278,55 +208,96 @@ export class SessionManager {
   /**
    * 开始清理服务
    */
-  private startCleanupService(interval: number): void {
-    this.cleanupInterval = setInterval(async () => {
-      const now = Date.now();
-      const expiredSessions = await this.storage.getExpired(now);
+  private startCleanupService(): void {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredSessions();
+    }, this.cleanupInterval);
 
-      for (const session of expiredSessions) {
-        await this.endSession(session.conversationId, SessionState.Expired);
-      }
-
-      if (expiredSessions.length > 0) {
-        console.log(`🧹 清理了 ${expiredSessions.length} 个过期会话`);
-      }
-    }, interval);
+    console.log(`🔄 会话清理服务已启动 (间隔：${this.cleanupInterval / 1000}秒)`);
   }
 
   /**
    * 停止清理服务
    */
   stopCleanupService(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = undefined;
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
     }
   }
 
   /**
-   * 获取会话统计
+   * 清理过期会话
    */
-  async getStats(): Promise<{
-    total: number;
-    active: number;
-    idle: number;
-    expired: number;
-  }> {
-    // 获取所有会话
-    const sessions = await this.storage.getAll();
+  private cleanupExpiredSessions(): void {
+    const now = Date.now();
+    const ttl = this.sessionConfig.ttl;
+    let cleanedCount = 0;
 
-    return {
-      total: sessions.length,
-      active: sessions.filter((s) => s.state === SessionState.Active).length,
-      idle: sessions.filter((s) => s.state === SessionState.Idle).length,
-      expired: sessions.filter((s) => s.state === SessionState.Expired).length,
-    };
+    for (const [conversationId, session] of Object.entries(this.sessions)) {
+      if (session.state === SessionState.Active && now - session.lastActivityAt > ttl) {
+        session.state = SessionState.Expired;
+        cleanedCount++;
+      }
+
+      // 删除终止和过期超过 1 小时的会话
+      if (
+        (session.state === SessionState.Terminated || session.state === SessionState.Expired) &&
+        now - session.lastActivityAt > ttl * 2
+      ) {
+        delete this.sessions[conversationId];
+      }
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`🧹 清理了 ${cleanedCount} 个过期会话`);
+    }
   }
-}
 
-/**
- * 创建默认会话管理器
- */
-export function createSessionManager(): SessionManager {
-  return new SessionManager();
+  /**
+   * 获取统计信息
+   */
+  async getStats(): Promise<SessionStats> {
+    const stats: SessionStats = {
+      total: Object.keys(this.sessions).length,
+      active: 0,
+      idle: 0,
+      expired: 0,
+      terminated: 0,
+    };
+
+    for (const session of Object.values(this.sessions)) {
+      switch (session.state) {
+        case SessionState.Active:
+          stats.active++;
+          break;
+        case SessionState.Idle:
+          stats.idle++;
+          break;
+        case SessionState.Expired:
+          stats.expired++;
+          break;
+        case SessionState.Terminated:
+          stats.terminated++;
+          break;
+      }
+    }
+
+    return stats;
+  }
+
+  /**
+   * 获取所有会话
+   */
+  async getAllSessions(): Promise<Session[]> {
+    return Object.values(this.sessions);
+  }
+
+  /**
+   * 清空所有会话
+   */
+  async clearAllSessions(): Promise<void> {
+    this.sessions = {};
+    console.log('🧹 已清空所有会话');
+  }
 }
