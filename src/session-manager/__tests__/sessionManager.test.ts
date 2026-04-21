@@ -10,9 +10,6 @@ describe('SessionManager', () => {
       config: {
         ttl: 60000, // 1 minute
         maxHistoryMessages: 10,
-        maxContextTokens: 4000,
-        enableAutoSummary: false,
-        summaryThreshold: 20,
       },
       autoCleanup: false,
     });
@@ -106,7 +103,7 @@ describe('SessionManager', () => {
     it('should trim messages when exceeding maxHistoryMessages', async () => {
       // Create manager with maxHistoryMessages=3
       const sm = new SessionManager({
-        config: { ttl: 60000, maxHistoryMessages: 3, maxContextTokens: 4000, enableAutoSummary: false, summaryThreshold: 20 },
+        config: { ttl: 60000, maxHistoryMessages: 3 },
         autoCleanup: false,
       });
       

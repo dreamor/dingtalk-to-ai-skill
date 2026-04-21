@@ -1,9 +1,15 @@
 /**
  * Gateway 服务模块 - 基于 Stream 模式的消息处理
  * 所有消息通过 Stream 连接接收，无需 Webhook 回调
+ * 
+ * 重构说明：
+ * - 错误格式化逻辑移至 errorFormatter.ts
+ * - 消息重试逻辑移至 retrySender.ts
+ * - 队列消费逻辑移至 queueConsumer.ts
  */
 import express, { Express, Request, Response, NextFunction } from 'express';
 import { DingtalkService } from '../dingtalk/dingtalk';
+import { DingtalkStreamService } from '../dingtalk/stream';
 import { SessionManager } from '../session-manager';
 import { MessageQueue } from '../message-queue/messageQueue';
 import { RateLimiter } from '../message-queue/rateLimiter';
@@ -15,7 +21,8 @@ import { config } from '../config';
 import { UserMessage, AIMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
 import { renderMarkdown } from '../utils/markdown';
-import { MessageRetryQueue } from '../utils/messageRetryQueue';
+import { formatError, getCLIInstallSuggestion, formatRateLimitMessage, formatBusyMessage } from './errorFormatter';
+import { RetrySender, type MessageSender } from './retrySender';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -49,6 +56,7 @@ interface GatewayResponse {
 export class GatewayServer {
   private app: Express;
   private dingtalkService: DingtalkService;
+  private streamService: DingtalkStreamService | null = null;
   private openCodeExecutor: OpenCodeExecutor;
   private claudeCodeExecutor: ClaudeCodeExecutor;
   private sessionManager: SessionManager;
@@ -56,11 +64,10 @@ export class GatewayServer {
   private rateLimiter: RateLimiter;
   private concurrencyController: ConcurrencyController;
   private deduplicator: MessageDeduplicator;
-  private messageRetryQueue: MessageRetryQueue;  // 消息重试队列
+  private retrySender: RetrySender;
   private server: ReturnType<Express['listen']> | null = null;
-  private consumerRunning: boolean = false; // 标记消费者是否运行
-  private consumerTimer: NodeJS.Timeout | null = null; // 消费者定时器
-  private retrySenderTimer: NodeJS.Timeout | null = null;  // 重试发送定时器
+  private consumerRunning: boolean = false;
+  private consumerTimer: NodeJS.Timeout | null = null;
 
   constructor(
     dingtalkService: DingtalkService,
@@ -75,79 +82,51 @@ export class GatewayServer {
     this.rateLimiter = deps.rateLimiter;
     this.concurrencyController = deps.concurrencyController;
     this.deduplicator = deps.deduplicator;
-    this.messageRetryQueue = new MessageRetryQueue();
+    this.retrySender = new RetrySender({
+      maxRetries: 5,
+      baseDelay: 5000,
+      maxDelay: 300000,
+      checkInterval: 10000,
+    });
 
     const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
     console.log(`✅ Gateway 已启用，所有消息将路由到 ${providerName}`);
+    
     this.setupMiddleware();
     this.setupRoutes();
-
-    // 启动消费者循环
     this.startConsumer();
-
-    // 启动重试发送循环
-    this.startRetrySender();
+    this.setupRetrySender();
   }
 
   /**
-   * 启动消息重试发送器
+   * 设置重试发送器
    */
-  private startRetrySender(): void {
-    const checkAndSend = async () => {
-      const pending = this.messageRetryQueue.getPending();
-      if (pending.length === 0) return;
-
-      console.log(`[RetryQueue] 准备重试发送 ${pending.length} 条消息`);
-
-      for (const msg of pending) {
-        // 检查是否到达重试时间
-        if (msg.lastAttemptAt) {
-          const delay = this.calculateRetryDelay(msg.retryCount);
-          if (Date.now() - msg.lastAttemptAt < delay) {
-            continue;  // 还未到重试时间
-          }
+  private setupRetrySender(): void {
+    const sender: MessageSender = async (conversationId, content, title, mentionList) => {
+      try {
+        const accessToken = await this.dingtalkService.getAccessToken();
+        
+        if (title) {
+          await this.dingtalkService.sendMarkdownMessage(accessToken, title, content);
+        } else {
+          await this.dingtalkService.sendTextMessage(accessToken, content, mentionList);
         }
-
-        const started = this.messageRetryQueue.startSending(msg.id);
-        if (!started) continue;
-
-        try {
-          const accessToken = await this.dingtalkService.getAccessToken();
-
-          if (msg.type === 'markdown') {
-            const replyTitle = msg.title || (config.aiProvider === 'claude' ? 'claude code 回复' : 'opencode 回复');
-            await this.dingtalkService.sendMarkdownMessage(
-              accessToken,
-              replyTitle,
-              msg.content
-            );
-          } else {
-            await this.dingtalkService.sendTextMessage(
-              accessToken,
-              msg.content,
-              msg.mentionList
-            );
-          }
-
-          this.messageRetryQueue.markSent(msg.id);
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : String(error);
-          this.messageRetryQueue.markFailed(msg.id, errorMsg);
-        }
+        return true;
+      } catch (error) {
+        console.error('[Gateway] 发送消息失败:', error);
+        return false;
       }
     };
 
-    // 每 10 秒检查一次
-    this.retrySenderTimer = setInterval(checkAndSend, 10 * 1000);
+    this.retrySender.setSender(sender);
+    this.retrySender.start();
   }
 
   /**
-   * 计算重试延迟
+   * 设置 Stream 服务（由 index.ts 调用）
    */
-  private calculateRetryDelay(retryCount: number): number {
-    const baseDelay = 5000;  // 5 秒
-    const delay = baseDelay * Math.pow(2, retryCount);
-    return Math.min(delay, 5 * 60 * 1000);  // 最多 5 分钟
+  setStreamService(service: DingtalkStreamService): void {
+    this.streamService = service;
   }
 
   private setupMiddleware(): void {
@@ -178,7 +157,6 @@ export class GatewayServer {
    * API 认证中间件
    */
   private authMiddleware(req: Request, res: Response, next: NextFunction): void {
-    // 如果没有配置 API 令牌，则跳过认证（开发环境）
     if (!config.gateway.apiToken) {
       next();
       return;
@@ -193,7 +171,7 @@ export class GatewayServer {
       return;
     }
 
-    const token = authHeader.substring(7); // 移除 'Bearer ' 前缀
+    const token = authHeader.substring(7);
     if (token !== config.gateway.apiToken) {
       res.status(401).json({
         success: false,
@@ -256,7 +234,7 @@ export class GatewayServer {
         this.claudeCodeExecutor.isAvailable(),
       ]);
       const queueStatus = this.messageQueue.getStatus();
-      const retryQueueStats = this.messageRetryQueue.getStats();
+      const retryQueueStats = this.retrySender.getStats();
       const rateLimitStatus = {
         maxTokensPerUser: this.rateLimiter.getMaxTokens(),
         currentUsers: this.rateLimiter.getUserCount(),
@@ -275,8 +253,9 @@ export class GatewayServer {
           opencode: {
             available: opencodeAvailable,
             command: config.ai.command,
-                  timeout: config.ai.timeout,
-                  maxRetries: config.ai.maxRetries,          },
+            timeout: config.ai.timeout,
+            maxRetries: config.ai.maxRetries,
+          },
           claude: {
             available: claudeAvailable,
             command: config.claude.command,
@@ -316,7 +295,6 @@ export class GatewayServer {
 
   /**
    * 核心消息处理方法
-   * 支持直接处理或队列处理模式
    */
   async processMessage(request: GatewayRequest, useQueue: boolean = false): Promise<GatewayResponse> {
     const { msg, userId = 'unknown', userName = '用户' } = request;
@@ -325,11 +303,10 @@ export class GatewayServer {
       console.log(`[Gateway] 接收到用户 ${userName}(${userId}) 的消息，加入队列：${msg.substring(0, 50)}...`);
 
       try {
-        // 创建用户消息对象
         const userMessage: UserMessage = {
           id: generateMessageId(),
           type: 'user',
-          conversationId: '', // 消费者处理时会获取或创建会话
+          conversationId: '',
           userId,
           username: userName,
           content: msg,
@@ -339,10 +316,8 @@ export class GatewayServer {
           },
         };
 
-        // 将消息加入队列
         this.messageQueue.enqueue(userMessage, 'normal');
         
-        // 立即返回成功响应
         return {
           success: true,
           message: '消息已接收，正在处理中',
@@ -358,25 +333,8 @@ export class GatewayServer {
         };
       }
     } else {
-      // 直接处理模式（保持向后兼容）
       return this.processMessageInternal(request);
     }
-  }
-
-  /**
-   * 构建传递给 OpenCode 的对话历史
-   */
-  private async buildHistoryForOpenCode(
-    conversationId: string
-  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
-    const messages = await this.sessionManager.getHistory(conversationId, 20);
-    
-    return messages
-      .filter(msg => msg.type === 'user' || msg.type === 'ai')
-      .map(msg => ({
-        role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
-        content: msg.content,
-      }));
   }
 
   /**
@@ -395,67 +353,42 @@ export class GatewayServer {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // 处理消息
         const result = await this.processMessage({
           msg,
           userId,
           userName,
         });
 
-        // 保存会话 ID 和回复内容
         if (result.data?.conversationId) {
           conversationId = result.data.conversationId;
         }
 
-        // 发送回复
         const accessToken = await this.dingtalkService.getAccessToken();
+        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
 
-        const replyTitle = config.aiProvider === 'claude' ? 'claude code 回复' : 'opencode 回复';
         if (result.success && result.data?.result) {
           const markdownText = renderMarkdown(result.data.result);
 
           try {
-            await this.dingtalkService.sendMarkdownMessage(
-              accessToken,
-              replyTitle,
-              markdownText
-            );
-            return; // 成功返回
+            await this.dingtalkService.sendMarkdownMessage(accessToken, replyTitle, markdownText);
+            return;
           } catch (_sendError) {
-            // 发送失败，添加到重试队列
             console.error(`[Gateway] 发送回复失败，添加到重试队列`);
             const queueId = generateMessageId();
-            this.messageRetryQueue.add(
-              queueId,
-              conversationId,
-              'markdown',
-              markdownText,
-              { title: replyTitle }
-            );
-            // 通知用户消息会稍后送达
-            await this.dingtalkService.sendTextMessage(
-              accessToken,
-              '📬 您的消息已收到，回复正在发送中，请稍候...'
-            );
+            this.retrySender.add(queueId, conversationId, 'markdown', markdownText, { title: replyTitle });
+            await this.dingtalkService.sendTextMessage(accessToken, '📬 您的消息已收到，回复正在发送中，请稍候...');
             return;
           }
         } else {
-          // 处理失败，返回细化错误信息
-          const errorMsg = this.formatErrorMessage(result.message, result.data?.messageId);
+          const errorMsg = formatError(result.message, result.data?.messageId);
 
           try {
             await this.dingtalkService.sendTextMessage(accessToken, errorMsg);
             return;
           } catch (_sendError) {
-            // 发送失败，添加到重试队列
             console.error(`[Gateway] 发送错误回复失败，添加到重试队列`);
             const queueId = generateMessageId();
-            this.messageRetryQueue.add(
-              queueId,
-              conversationId,
-              'text',
-              errorMsg
-            );
+            this.retrySender.add(queueId, conversationId, 'text', errorMsg);
             return;
           }
         }
@@ -471,78 +404,20 @@ export class GatewayServer {
       }
     }
 
-    // 所有重试都失败，添加到重试队列并通知用户
     console.error('[Gateway] 消息处理最终失败:', lastError);
     try {
       const accessToken = await this.dingtalkService.getAccessToken();
-      const errorMessage = this.formatErrorMessage(
-        lastError?.message || '未知错误',
-        undefined,
-        true
-      );
+      const errorMessage = formatError(lastError?.message || '未知错误', undefined, true);
 
-      // 添加到重试队列
       if (conversationId) {
         const queueId = generateMessageId();
-        this.messageRetryQueue.add(
-          queueId,
-          conversationId,
-          'text',
-          errorMessage
-        );
+        this.retrySender.add(queueId, conversationId, 'text', errorMessage);
       }
 
-      // 通知用户会稍后重试
-      await this.dingtalkService.sendTextMessage(
-        accessToken,
-        '⚠️ 消息处理遇到问题，系统将自动重试，请稍候查看回复。'
-      );
+      await this.dingtalkService.sendTextMessage(accessToken, '⚠️ 消息处理遇到问题，系统将自动重试，请稍候查看回复。');
     } catch (_sendError) {
       console.error('[Gateway] 发送错误回复失败:', _sendError);
     }
-  }
-
-  /**
-   * 格式化错误信息，面向用户
-   */
-  private formatErrorMessage(
-    error: string,
-    messageId?: string,
-    isSystemError = false
-  ): string {
-    const idPart = messageId ? `\n📋 追踪ID: ${messageId}` : '';
-
-    // 细化错误类型
-    if (error.includes('timeout') || error.includes('超时')) {
-      return `⏱️ 处理超时\n\n我需要更多时间思考，请稍等片刻再试一次。${idPart}`;
-    }
-    if (error.includes('未安装') || error.includes('找不到命令') || error.includes('ENOENT')) {
-      return `⚠️ OpenCode CLI 未正确安装\n\n请确保已安装 OpenCode:\n\`\`\`bash\nnpm install -g opencode\n\`\`\`${idPart}`;
-    }
-    if (error.includes('permission') || error.includes('Permission denied')) {
-      return `🔒 权限不足\n\n无法执行操作，请检查权限设置。${idPart}`;
-    }
-    if (error.includes('network') || error.includes('Network') || error.includes('ECONNREFUSED')) {
-      return `🌐 网络问题\n\n无法连接到服务，请检查网络后重试。${idPart}`;
-    }
-    if (error.includes('Rate limit') || error.includes('请求过于频繁')) {
-      return `🚥 请求过于频繁\n\n请稍等片刻再发送消息。${idPart}`;
-    }
-    if (error.includes('系统繁忙') || error.includes('concurrent')) {
-      return `🔥 系统繁忙\n\n当前用户并发请求过多，请稍后重试。${idPart}`;
-    }
-    if (error.includes('会话创建失败')) {
-      return `🗣️ 会话创建失败\n\n请稍后重试，或重新发起对话。${idPart}`;
-    }
-    if (error.includes('消息已处理') || error.includes('重复')) {
-      return `🔄 消息重复\n\n该消息已处理，请勿重复发送。${idPart}`;
-    }
-
-    // 默认错误信息
-    if (isSystemError) {
-      return `❌ 处理失败\n\n抱歉，我遇到了问题。请稍后重试。${idPart}`;
-    }
-    return `❌ ${error}${idPart}`;
   }
 
   async start(port: number, host: string = '0.0.0.0'): Promise<void> {
@@ -563,8 +438,8 @@ export class GatewayServer {
   }
 
   async stop(): Promise<void> {
-    // 停止消费者循环
     this.stopConsumer();
+    this.retrySender.stop();
     
     if (this.server) {
       return new Promise((resolve) => {
@@ -580,14 +455,10 @@ export class GatewayServer {
    * 启动消费者循环
    */
   private startConsumer(): void {
-    if (this.consumerRunning) {
-      return;
-    }
+    if (this.consumerRunning) return;
     
     this.consumerRunning = true;
     console.log('[Gateway] 消息消费者已启动');
-    
-    // 启动消费循环
     this.consumeLoop();
   }
 
@@ -596,12 +467,10 @@ export class GatewayServer {
    */
   private stopConsumer(): void {
     this.consumerRunning = false;
-    
     if (this.consumerTimer) {
       clearTimeout(this.consumerTimer);
       this.consumerTimer = null;
     }
-    
     console.log('[Gateway] 消息消费者已停止');
   }
 
@@ -609,21 +478,15 @@ export class GatewayServer {
    * 消费循环
    */
   private consumeLoop(): void {
-    if (!this.consumerRunning) {
-      return;
-    }
+    if (!this.consumerRunning) return;
 
-    // 处理队列中的消息
     this.processQueuedMessages()
       .catch(error => {
         console.error('[Gateway] 处理队列消息时发生错误:', error);
       })
       .finally(() => {
-        // 安排下次循环
         if (this.consumerRunning) {
-          this.consumerTimer = setTimeout(() => {
-            this.consumeLoop();
-          }, 100); // 每100毫秒检查一次队列
+          this.consumerTimer = setTimeout(() => this.consumeLoop(), config.messageQueue.pollInterval);
         }
       });
   }
@@ -632,61 +495,43 @@ export class GatewayServer {
    * 处理队列中的消息
    */
   private async processQueuedMessages(): Promise<void> {
-    try {
-      // 批量获取消息（最多处理5条）
-      const queuedMessages = this.messageQueue.batchDequeue(5);
+    const queuedMessages = this.messageQueue.batchDequeue(5);
+    if (queuedMessages.length === 0) return;
+
+    console.log(`[Gateway] 从队列中获取到 ${queuedMessages.length} 条消息`);
+
+    const processPromises = queuedMessages.map(async (queuedMsg) => {
+      const { message, retryCount } = queuedMsg;
       
-      if (queuedMessages.length === 0) {
-        return;
-      }
-      
-      console.log(`[Gateway] 从队列中获取到 ${queuedMessages.length} 条消息`);
-      
-      // 并行处理消息
-      const processPromises = queuedMessages.map(async (queuedMsg) => {
-        const { message, retryCount } = queuedMsg;
+      try {
+        console.log(`[Gateway] 处理队列消息：${message.content.substring(0, 50)}...`);
+        await this.processMessageInternal({
+          msg: message.content,
+          userId: message.userId,
+          userName: message.username || '用户'
+        });
+        this.messageQueue.complete(message.id);
+        console.log(`[Gateway] 队列消息处理完成: ${message.id}`);
+      } catch (error) {
+        console.error(`[Gateway] 处理队列消息失败: ${message.id}`, error);
+        this.messageQueue.fail(message.id);
         
-        try {
-          console.log(`[Gateway] 处理队列消息：${message.content.substring(0, 50)}...`);
-          
-          // 处理消息（注意：这里需要构造正确的request对象）
-          await this.processMessageInternal({
-            msg: message.content,
-            userId: message.userId,
-            userName: message.username || '用户'
-          });
-          
-          // 标记消息处理完成
-          this.messageQueue.complete(message.id);
-          
-          console.log(`[Gateway] 队列消息处理完成: ${message.id}`);
-        } catch (error) {
-          console.error(`[Gateway] 处理队列消息失败: ${message.id}`, error);
-          
-          // 标记消息处理失败，重新入队
-          this.messageQueue.fail(message.id);
-          
-          // 如果重试次数过多，记录错误日志
-          if (retryCount >= 3) {
-            console.error(`[Gateway] 消息重试次数过多，将丢弃: ${message.id}`);
-          }
+        if (retryCount >= 3) {
+          console.error(`[Gateway] 消息重试次数过多，将丢弃: ${message.id}`);
         }
-      });
-      
-      // 等待所有消息处理完成
-      await Promise.all(processPromises);
-    } catch (error) {
-      console.error('[Gateway] 处理队列消息时发生错误:', error);
-    }
+      }
+    });
+
+    await Promise.all(processPromises);
   }
 
   /**
-   * 内部消息处理方法（从processMessage提取出的核心逻辑）
+   * 内部消息处理方法
    */
   private async processMessageInternal(request: GatewayRequest): Promise<GatewayResponse> {
     const { msg, userId = 'unknown', userName = '用户' } = request;
     const startTime = Date.now();
-    const messageId = generateMessageId();  // 追踪 ID
+    const messageId = generateMessageId();
 
     console.log(`[${messageId}] 处理消息：${userName}(${userId}): ${msg.substring(0, 50)}...`);
 
@@ -714,7 +559,7 @@ export class GatewayServer {
       console.log(`[${messageId}] 流量控制：剩余配额 ${rateLimitResult.remaining}`);
       return {
         success: false,
-        message: `请求过于频繁，请稍后再试（剩余配额：${rateLimitResult.remaining}）`,
+        message: formatRateLimitMessage(rateLimitResult.remaining),
       };
     }
     this.rateLimiter.consumeToken(userId);
@@ -735,16 +580,13 @@ export class GatewayServer {
     // 5. 并发控制
     const requestId = generateMessageId();
     try {
-      // 设置30秒超时
       await this.concurrencyController.acquireSlot(userId, requestId, 30000);
       console.log(`[${messageId}] 步骤 5: 并发控制通过`);
     } catch (error) {
       console.error(`[${messageId}] 获取并发槽位失败:`, error);
       return {
         success: false,
-        message: error instanceof Error && error.message.includes('超时')
-          ? '系统繁忙，请稍后重试'
-          : '系统资源不足，请稍后重试',
+        message: formatBusyMessage(),
       };
     }
 
@@ -766,7 +608,7 @@ export class GatewayServer {
       // 7. 添加消息到会话历史
       await this.sessionManager.addMessage(session.conversationId, userMessage);
 
-      // 8. 获取对话历史（传递给 OpenCode 作为上下文）
+      // 8. 获取对话历史
       const history = await this.buildHistoryForOpenCode(session.conversationId);
 
       // 9. 构建 OpenCode 上下文
@@ -796,30 +638,16 @@ export class GatewayServer {
       if (result.success && result.output) {
         responseContent = result.output;
       } else if (result.error) {
-        // 如果是 CLI 未安装，给出友好提示
-        if (result.error.includes('未安装') || result.error.includes('找不到命令')) {
-          if (config.aiProvider === 'claude') {
-            responseContent = `⚠️ Claude Code CLI 未安装\n\n` +
-              `请先安装 Claude Code CLI:\n` +
-              `\`\`\`bash\n` +
-              `brew install anthropic/claude/claude\n\`\`\`\n\n` +
-              `或配置环境变量 CLAUDE_COMMAND 指定 claude 命令路径。`;
-          } else {
-            responseContent = `⚠️ OpenCode CLI 未安装\n\n` +
-              `请先安装 OpenCode CLI:\n` +
-              `\`\`\`bash\n` +
-              `npm install -g opencode\n` +
-              `\`\`\`\n\n` +
-              `或配置环境变量 OPENCODE_COMMAND 指定 opencode 命令路径。`;
-          }
+        if (result.error.includes('未安装') || result.error.includes('找不到命令') || result.error.includes('ENOENT')) {
+          responseContent = getCLIInstallSuggestion(config.aiProvider);
         } else {
-          responseContent = `❌ 处理失败\n\n错误信息：${result.error}`;
+          responseContent = formatError(result.error, messageId);
         }
       } else {
         responseContent = '处理完成，但没有返回结果。';
       }
 
-      // 12. 创建 AI 消息对象并保存到会话历史
+      // 12. 创建 AI 消息对象并保存
       const aiMessage: AIMessage = {
         id: generateMessageId(),
         type: 'ai',
@@ -845,12 +673,28 @@ export class GatewayServer {
           result: responseContent,
           conversationId: session.conversationId,
           executionTime: totalTime,
-          messageId,  // 追踪 ID
+          messageId,
         },
       };
     } finally {
       // 14. 释放并发槽位
       this.concurrencyController.releaseSlot(userId, requestId);
     }
+  }
+
+  /**
+   * 构建传递给 OpenCode 的对话历史
+   */
+  private async buildHistoryForOpenCode(
+    conversationId: string
+  ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+    const messages = await this.sessionManager.getHistory(conversationId, 20);
+    
+    return messages
+      .filter(msg => msg.type === 'user' || msg.type === 'ai')
+      .map(msg => ({
+        role: msg.type === 'user' ? 'user' as const : 'assistant' as const,
+        content: msg.content,
+      }));
   }
 }

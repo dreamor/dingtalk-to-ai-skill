@@ -27,12 +27,6 @@ export interface SessionConfig {
   ttl: number;
   /** 最大历史消息数 */
   maxHistoryMessages: number;
-  /** 最大上下文 token 数 */
-  maxContextTokens: number;
-  /** 是否启用自动摘要 */
-  enableAutoSummary: boolean;
-  /** 摘要触发阈值 (消息数) */
-  summaryThreshold: number;
 }
 
 /**
@@ -41,7 +35,6 @@ export interface SessionConfig {
 export interface ConversationContext {
   conversationId: string;
   messages: ConversationMessage[];
-  summary?: string;
   metadata: {
     createdAt: number;
     lastActivityAt: number;
@@ -100,24 +93,9 @@ export interface HistoryManager {
 }
 
 /**
- * 上下文构建器接口
- */
-export interface ContextBuilder {
-  /** 聚合消息为上下文 */
-  aggregateMessages(messages: ConversationMessage[]): string;
-  /** 裁剪上下文以适应 token 限制 */
-  trimContext(messages: ConversationMessage[], maxTokens: number): ConversationMessage[];
-  /** 生成历史摘要 */
-  summarizeHistory(messages: ConversationMessage[]): Promise<string>;
-}
-
-/**
  * 默认会话配置
  */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   ttl: 30 * 60 * 1000, // 30 分钟
   maxHistoryMessages: 50,
-  maxContextTokens: 4000,
-  enableAutoSummary: true,
-  summaryThreshold: 20,
 };
