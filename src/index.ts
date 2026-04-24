@@ -103,6 +103,11 @@ async function main(): Promise<void> {
   );
   globalGateway = gateway;
 
+  // 初始化媒体处理器
+  if (config.media.enabled) {
+    gateway.initMediaProcessor();
+  }
+
   // 启动 Gateway
   try {
     await gateway.start(config.gateway.port);
@@ -124,6 +129,15 @@ async function main(): Promise<void> {
   
   const streamService = new DingtalkStreamService();
   globalStreamService = streamService;
+
+  // 设置媒体处理器
+  if (config.media.enabled) {
+    const { MediaDownloader, MediaProcessor } = await import('./media');
+    const downloader = new MediaDownloader(dingtalkService);
+    const mediaProcessor = new MediaProcessor(downloader, config.media.enabled);
+    streamService.setMediaProcessor(mediaProcessor);
+    console.log('✅ 媒体处理器已设置到 Stream 服务');
+  }
   
   // 设置消息处理器
   streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {

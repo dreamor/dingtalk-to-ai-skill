@@ -77,6 +77,14 @@ export interface LoggingConfig {
   filePath?: string;
 }
 
+export interface MediaConfig {
+  enabled: boolean;
+  voiceTranscriptionEnabled: boolean;
+  imageDescriptionEnabled: boolean;
+  maxFileSize: number;
+  downloadTimeout: number;
+}
+
 // ==================== 配置验证错误 ====================
 
 export class ConfigValidationError extends Error {
@@ -205,6 +213,14 @@ export const config = {
     enableFile: process.env.LOG_ENABLE_FILE === 'true',
     filePath: process.env.LOG_FILE_PATH,
   } as LoggingConfig,
+
+  media: {
+    enabled: process.env.MEDIA_ENABLED !== 'false',
+    voiceTranscriptionEnabled: process.env.MEDIA_VOICE_TRANSCRIPTION === 'true',
+    imageDescriptionEnabled: process.env.MEDIA_IMAGE_DESCRIPTION === 'true',
+    maxFileSize: parseEnvNumber('MEDIA_MAX_FILE_SIZE', 10485760, 1048576, 52428800),
+    downloadTimeout: parseEnvNumber('MEDIA_DOWNLOAD_TIMEOUT', 30000, 5000, 120000),
+  } as MediaConfig,
 };
 
 // ==================== 配置验证 ====================

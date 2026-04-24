@@ -29,6 +29,7 @@ import {
   formatBusyMessage,
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
+import { MediaDownloader, MediaProcessor } from '../media';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -71,6 +72,7 @@ export class GatewayServer {
   private concurrencyController: ConcurrencyController;
   private deduplicator: MessageDeduplicator;
   private retrySender: RetrySender;
+  private mediaProcessor: MediaProcessor | null = null;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
   private consumerTimer: NodeJS.Timeout | null = null;
@@ -130,6 +132,10 @@ export class GatewayServer {
    */
   setStreamService(service: DingtalkStreamService): void {
     this.streamService = service;
+  }
+
+  setMediaProcessor(processor: MediaProcessor): void {
+    this.mediaProcessor = processor;
   }
 
   private setupMiddleware(): void {
@@ -294,6 +300,66 @@ export class GatewayServer {
         },
       });
     });
+
+    // 媒体处理 API
+    this.app.post('/api/media/process', async (req: Request, res: Response) => {
+      try {
+        const { type, mediaId, duration, format, downloadCode, downloadUrl, fileName } = req.body;
+
+        if (!this.mediaProcessor) {
+          res.status(503).json({
+            success: false,
+            message: '媒体处理器未初始化',
+          });
+          return;
+        }
+
+        let result;
+        switch (type) {
+          case 'voice':
+            result = await this.mediaProcessor.processVoice(mediaId, duration, format);
+            break;
+          case 'image':
+            result = await this.mediaProcessor.processImage(downloadCode, downloadUrl);
+            break;
+          case 'video':
+            result = await this.mediaProcessor.processVideo(mediaId);
+            break;
+          case 'file':
+            result = await this.mediaProcessor.processFile(mediaId, fileName);
+            break;
+          default:
+            res.status(400).json({
+              success: false,
+              message: `不支持的媒体类型: ${type}`,
+            });
+            return;
+        }
+
+        res.json({
+          success: true,
+          data: { result },
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error('[Gateway] 媒体处理失败:', msg);
+        res.status(500).json({
+          success: false,
+          message: `媒体处理失败: ${msg}`,
+        });
+      }
+    });
+  }
+
+  /**
+   * 初始化媒体处理器
+   */
+  initMediaProcessor(): void {
+    if (config.media.enabled) {
+      const downloader = new MediaDownloader(this.dingtalkService);
+      this.mediaProcessor = new MediaProcessor(downloader, config.media.enabled);
+      console.log('✅ 媒体处理器已初始化');
+    }
   }
 
   /**

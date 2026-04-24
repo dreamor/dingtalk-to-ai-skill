@@ -11,6 +11,7 @@ import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
 import { updateAdminSessionWebhook, getAdminConversationId, notifyError, isAlertEnabled } from '../utils/alert';
+import type { MediaProcessor } from '../media/mediaProcessor';
 
 export interface MessageHandler {
   (
@@ -51,6 +52,7 @@ export class DingtalkStreamService {
   private maxReconnectAttempts: number = 10;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isManualDisconnect: boolean = false;
+  private mediaProcessor: MediaProcessor | null = null;
 
   constructor() {
     this.maxReconnectAttempts = config.stream.maxReconnectAttempts;
@@ -74,6 +76,11 @@ export class DingtalkStreamService {
 
   setMessageHandler(handler: MessageHandler): void {
     this.messageHandler = handler;
+  }
+
+  setMediaProcessor(processor: MediaProcessor): void {
+    this.mediaProcessor = processor;
+    console.log('[Stream] Media processor set');
   }
 
   async start(): Promise<void> {
@@ -328,17 +335,67 @@ export class DingtalkStreamService {
       // Extract message content (support multiple types)
       let messageContent: string | undefined;
 
-      // Handle non-text message types with friendly response
-      const supportedMsgTypes = ['text'];
-      if (msgtype && !supportedMsgTypes.includes(msgtype)) {
+      // Handle media message types
+      const mediaTypes = ['voice', 'picture', 'richText', 'video', 'file'];
+      if (msgtype && mediaTypes.includes(msgtype)) {
+        console.log(`[Stream] [${messageId}] Received media message type: ${msgtype}`);
+
+        if (this.mediaProcessor) {
+          try {
+            let processedMedia;
+            if (msgtype === 'voice' && data.voice) {
+              processedMedia = await this.mediaProcessor.processVoice(
+                data.voice.mediaId,
+                data.voice.duration,
+                data.voice.format
+              );
+            } else if (msgtype === 'picture' && data.picture) {
+              processedMedia = await this.mediaProcessor.processImage(
+                data.picture.downloadCode,
+                data.picture.downloadUrl
+              );
+            } else if (msgtype === 'video' && data.video) {
+              processedMedia = await this.mediaProcessor.processVideo(data.video.mediaId);
+            } else if (msgtype === 'file' && data.file) {
+              processedMedia = await this.mediaProcessor.processFile(
+                data.file.mediaId,
+                data.file.fileName || 'unknown'
+              );
+            } else if (msgtype === 'richText') {
+              processedMedia = {
+                type: 'file' as const,
+                text: '[富文本消息] 用户发送了富文本消息',
+                meta: {},
+              };
+            }
+
+            if (processedMedia) {
+              messageContent = processedMedia.text;
+            }
+          } catch (error) {
+            console.error(`[Stream] [${messageId}] Failed to process ${msgtype} message:`, error);
+            messageContent = `[${msgtype}消息] 用户发送了${msgtype}消息（处理失败）`;
+          }
+        } else {
+          // No media processor, use placeholder
+          const placeholders: Record<string, string> = {
+            voice: '[语音消息] 用户发送了语音消息',
+            picture: '[图片消息] 用户发送了一张图片',
+            video: '[视频消息] 用户发送了视频',
+            file: '[文件消息] 用户发送了文件',
+            richText: '[富文本消息] 用户发送了富文本消息',
+          };
+          messageContent = placeholders[msgtype] || `[${msgtype}消息] 用户发送了${msgtype}消息`;
+        }
+      } else if (msgtype && msgtype !== 'text') {
+        // Truly unsupported message types
         console.log(`[Stream] [${messageId}] Received unsupported message type: ${msgtype}`);
 
-        // Send friendly response for unsupported types
         if (sessionWebhook) {
           const unsupportedMsg = this.getUnsupportedMessageResponse(msgtype);
           await this.sendTextMessage(conversationId!, unsupportedMsg);
         }
-        return; // Skip further processing
+        return;
       }
 
       if (msgtype === 'text' && text?.content) {
