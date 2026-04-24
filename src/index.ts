@@ -23,6 +23,7 @@ import {
   setStreamService 
 } from './utils/alert';
 import { enableGlobalSanitize } from './utils/logger';
+import { ProviderRegistry, MessageRouter } from './router';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
@@ -102,6 +103,33 @@ async function main(): Promise<void> {
     }
   );
   globalGateway = gateway;
+
+  // 初始化路由器
+  if (config.router.enabled) {
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register({
+      name: 'default',
+      type: config.aiProvider,
+      command: config.aiProvider === 'claude' ? config.claude.command : config.ai.command,
+      timeout: config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout,
+      enabled: true,
+    });
+    providerRegistry.setDefault('default');
+
+    const messageRouter = new MessageRouter(providerRegistry);
+    for (const ruleConfig of config.router.rules) {
+      messageRouter.addRule({
+        name: ruleConfig.name,
+        enabled: ruleConfig.enabled,
+        priority: ruleConfig.priority,
+        condition: ruleConfig.condition as any,
+        provider: ruleConfig.provider,
+      });
+    }
+
+    gateway.setRouter(messageRouter, providerRegistry);
+    console.log(`✅ 路由器已启动 (${providerRegistry.size()} 个 Provider, ${messageRouter.listRules().length} 条规则)`);
+  }
 
   // 启动 Gateway
   try {

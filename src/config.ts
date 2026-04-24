@@ -77,6 +77,27 @@ export interface LoggingConfig {
   filePath?: string;
 }
 
+export interface RouterConfig {
+  enabled: boolean;
+  defaultProvider: string;
+  rules: RouterRuleConfig[];
+}
+
+export interface RouterRuleConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  condition: {
+    type: string;
+    keywords?: string[];
+    userIds?: string[];
+    conversationIds?: string[];
+    pattern?: string;
+    match?: string;
+  };
+  provider: string;
+}
+
 // ==================== 配置验证错误 ====================
 
 export class ConfigValidationError extends Error {
@@ -205,6 +226,20 @@ export const config = {
     enableFile: process.env.LOG_ENABLE_FILE === 'true',
     filePath: process.env.LOG_FILE_PATH,
   } as LoggingConfig,
+
+  router: {
+    enabled: process.env.ROUTER_ENABLED === 'true',
+    defaultProvider: process.env.ROUTER_DEFAULT_PROVIDER || 'default',
+    rules: (() => {
+      try {
+        const rulesJson = process.env.ROUTER_RULES;
+        return rulesJson ? JSON.parse(rulesJson) : [];
+      } catch {
+        console.warn('[Config] ROUTER_RULES JSON 解析失败，使用空规则列表');
+        return [];
+      }
+    })(),
+  } as RouterConfig,
 };
 
 // ==================== 配置验证 ====================
