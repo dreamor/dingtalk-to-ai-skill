@@ -612,6 +612,48 @@ export class DingtalkStreamService {
   }
 
   /**
+   * 发送互动卡片消息
+   */
+  async sendCardMessage(conversationId: string, cardData: Record<string, unknown>): Promise<boolean> {
+    try {
+      if (!this.client) {
+        throw new Error('Stream client not connected');
+      }
+
+      const sessionInfo = this.pendingMessages.get(conversationId);
+
+      if (!sessionInfo?.sessionWebhook) {
+        throw new Error(`sessionWebhook not found for ${conversationId}`);
+      }
+
+      sessionInfo.lastUsedAt = Date.now();
+
+      console.log(`[Stream] Sending card message to ${conversationId.substring(0, 30)}...`);
+
+      await axios.post(sessionInfo.sessionWebhook, cardData, {
+        timeout: 10000,
+      });
+
+      sessionInfo.healthStatus = 'healthy';
+      sessionInfo.failureCount = 0;
+
+      console.log('[Stream] Card message sent successfully');
+      return true;
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('[Stream] Failed to send card message:', msg);
+
+      const sessionInfo = this.pendingMessages.get(conversationId);
+      if (sessionInfo) {
+        sessionInfo.failureCount++;
+        sessionInfo.healthStatus = 'failed';
+      }
+
+      return false;
+    }
+  }
+
+  /**
    * 获取不支持的消息类型的友好回复
    */
   private getUnsupportedMessageResponse(msgType: string): string {
