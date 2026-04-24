@@ -7,7 +7,7 @@
  */
 export interface MessageMetadata {
   timestamp: number;
-  source: 'dingtalk' | 'system' | 'ai';
+  source: 'dingtalk' | 'system' | 'ai' | 'scheduler';
 }
 
 /**
