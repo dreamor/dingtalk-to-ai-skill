@@ -13,6 +13,7 @@ import axios from 'axios';
 import { updateAdminSessionWebhook, getAdminConversationId, notifyError, isAlertEnabled } from '../utils/alert';
 import { parseCommand } from '../commands/commandParser';
 import type { CommandHandler, CommandDeps } from '../commands/commandHandler';
+import type { MediaProcessor } from '../media/mediaProcessor';
 
 export interface MessageHandler {
   (
@@ -54,6 +55,7 @@ export class DingtalkStreamService {
   private maxReconnectAttempts: number = 10;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isManualDisconnect: boolean = false;
+  private mediaProcessor: MediaProcessor | null = null;
 
   constructor() {
     this.maxReconnectAttempts = config.stream.maxReconnectAttempts;
@@ -81,6 +83,11 @@ export class DingtalkStreamService {
 
   setCommandHandler(handler: CommandHandler): void {
     this.commandHandler = handler;
+  }
+
+  setMediaProcessor(processor: MediaProcessor): void {
+    this.mediaProcessor = processor;
+    console.log('[Stream] Media processor set');
   }
 
   async start(): Promise<void> {
@@ -335,20 +342,59 @@ export class DingtalkStreamService {
       // Extract message content (support multiple types)
       let messageContent: string | undefined;
 
-      // Handle non-text message types with friendly response
-      const supportedMsgTypes = ['text'];
-      if (msgtype && !supportedMsgTypes.includes(msgtype)) {
-        console.log(`[Stream] [${messageId}] Received unsupported message type: ${msgtype}`);
+      // Handle media message types
+      const mediaTypes = ['voice', 'picture', 'richText', 'video', 'file'];
+      if (msgtype && mediaTypes.includes(msgtype)) {
+        console.log(`[Stream] [${messageId}] Received media message type: ${msgtype}`);
 
-        // Send friendly response for unsupported types
-        if (sessionWebhook) {
-          const unsupportedMsg = this.getUnsupportedMessageResponse(msgtype);
-          await this.sendTextMessage(conversationId!, unsupportedMsg);
+        if (this.mediaProcessor) {
+          try {
+            let processedMedia;
+            if (msgtype === 'voice' && data.voice) {
+              processedMedia = await this.mediaProcessor.processVoice(
+                data.voice.mediaId,
+                data.voice.duration,
+                data.voice.format
+              );
+            } else if (msgtype === 'picture' && data.picture) {
+              processedMedia = await this.mediaProcessor.processImage(
+                data.picture.downloadCode,
+                data.picture.downloadUrl
+              );
+            } else if (msgtype === 'video' && data.video) {
+              processedMedia = await this.mediaProcessor.processVideo(data.video.mediaId);
+            } else if (msgtype === 'file' && data.file) {
+              processedMedia = await this.mediaProcessor.processFile(
+                data.file.mediaId,
+                data.file.fileName || 'unknown'
+              );
+            } else if (msgtype === 'richText') {
+              processedMedia = {
+                type: 'file' as const,
+                text: '[富文本消息] 用户发送了富文本消息',
+                meta: {},
+              };
+            }
+
+            if (processedMedia) {
+              messageContent = processedMedia.text;
+            }
+          } catch (error) {
+            console.error(`[Stream] [${messageId}] Failed to process ${msgtype} message:`, error);
+            messageContent = `[${msgtype}消息] 用户发送了${msgtype}消息（处理失败）`;
+          }
+        } else {
+          // No media processor, use placeholder
+          const placeholders: Record<string, string> = {
+            voice: '[语音消息] 用户发送了语音消息',
+            picture: '[图片消息] 用户发送了一张图片',
+            video: '[视频消息] 用户发送了视频',
+            file: '[文件消息] 用户发送了文件',
+            richText: '[富文本消息] 用户发送了富文本消息',
+          };
+          messageContent = placeholders[msgtype] || `[${msgtype}消息] 用户发送了${msgtype}消息`;
         }
-        return; // Skip further processing
-      }
-
-      if (msgtype === 'text' && text?.content) {
+      } else if (msgtype === 'text' && text?.content) {
         messageContent = text.content;
       } else if (typeof content === 'string' && content) {
         messageContent = content;
@@ -678,17 +724,4 @@ export class DingtalkStreamService {
     }
   }
 
-  /**
-   * 获取不支持的消息类型的友好回复
-   */
-  private getUnsupportedMessageResponse(msgType: string): string {
-    const tips: Record<string, string> = {
-      image: '📷 抱歉，我目前不支持图片消息。请发送文字消息，我会尽快回复您。',
-      file: '📎 抱歉，我目前不支持文件消息。请发送文字消息，我会尽快回复您。',
-      voice: '🎤 抱歉，我目前不支持语音消息。请发送文字消息，我会尽快回复您。',
-      video: '🎥 抱歉，我目前不支持视频消息。请发送文字消息，我会尽快回复您。',
-      richText: '📝 抱歉，我目前不支持富文本消息。请发送文字消息，我会尽快回复您。',
-    };
-    return tips[msgType] || '📋 抱歉，我暂不支持此类消息。请发送文字消息，我会尽快回复您。';
   }
-}

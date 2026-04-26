@@ -24,6 +24,7 @@ import {
 } from './utils/alert';
 import { enableGlobalSanitize } from './utils/logger';
 import { Scheduler } from './scheduler';
+import { ProviderRegistry, MessageRouter } from './router';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
@@ -114,6 +115,35 @@ async function main(): Promise<void> {
   );
   globalGateway = gateway;
 
+  // 将调度器绑定到 Gateway
+  gateway.setScheduler(scheduler);
+
+  // 初始化路由器
+  if (config.router.enabled) {
+    const providerRegistry = new ProviderRegistry();
+    providerRegistry.register({
+      name: 'default',
+      type: config.aiProvider,
+      command: config.aiProvider === 'claude' ? config.claude.command : config.ai.command,
+      timeout: config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout,
+      enabled: true,
+    });
+
+    const messageRouter = new MessageRouter(providerRegistry);
+    for (const ruleConfig of config.router.rules) {
+      messageRouter.addRule({
+        name: ruleConfig.name,
+        enabled: ruleConfig.enabled,
+        priority: ruleConfig.priority,
+        condition: ruleConfig.condition as any,
+        provider: ruleConfig.provider,
+      });
+    }
+
+    gateway.setRouter(messageRouter, providerRegistry);
+    console.log(`✅ 路由器已启动 (${providerRegistry.size()} 个 Provider, ${messageRouter.listRules().length} 条规则)`);
+  }
+
   // 启动 Gateway
   try {
     await gateway.start(config.gateway.port);
@@ -135,7 +165,16 @@ async function main(): Promise<void> {
   
   const streamService = new DingtalkStreamService();
   globalStreamService = streamService;
-  
+
+  // 设置媒体处理器
+  if (config.media.enabled) {
+    const { MediaDownloader, MediaProcessor } = await import('./media');
+    const downloader = new MediaDownloader(dingtalkService);
+    const mediaProcessor = new MediaProcessor(downloader, config.media.enabled);
+    streamService.setMediaProcessor(mediaProcessor);
+    console.log('✅ 媒体处理器已设置到 Stream 服务');
+  }
+
   // 设置消息处理器
   streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {
     const startTime = Date.now();

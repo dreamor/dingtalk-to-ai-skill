@@ -90,6 +90,37 @@ export interface SchedulerConfig {
   tasks: SchedulerTaskConfig[];
 }
 
+export interface MediaConfig {
+  enabled: boolean;
+  voiceTranscriptionEnabled: boolean;
+  imageDescriptionEnabled: boolean;
+  maxFileSize: number;
+  downloadTimeout: number;
+}
+
+export interface RouterProviderConfig {
+  name: string;
+  type: string;
+  command: string;
+  args?: string[];
+  timeout: number;
+  enabled: boolean;
+}
+
+export interface RouterRuleConfig {
+  name: string;
+  enabled: boolean;
+  priority: number;
+  condition: Record<string, unknown>;
+  provider: string;
+}
+
+export interface RouterConfig {
+  enabled: boolean;
+  providers: RouterProviderConfig[];
+  rules: RouterRuleConfig[];
+}
+
 // ==================== 配置验证错误 ====================
 
 export class ConfigValidationError extends Error {
@@ -230,6 +261,34 @@ export const config = {
       }
     })(),
   } as SchedulerConfig,
+
+  media: {
+    enabled: process.env.MEDIA_ENABLED !== 'false',
+    voiceTranscriptionEnabled: process.env.MEDIA_VOICE_TRANSCRIPTION === 'true',
+    imageDescriptionEnabled: process.env.MEDIA_IMAGE_DESCRIPTION === 'true',
+    maxFileSize: parseEnvNumber('MEDIA_MAX_FILE_SIZE', 10485760, 1048576, 52428800),
+    downloadTimeout: parseEnvNumber('MEDIA_DOWNLOAD_TIMEOUT', 30000, 5000, 120000),
+  } as MediaConfig,
+
+  router: {
+    enabled: process.env.ROUTER_ENABLED === 'true',
+    providers: (() => {
+      try {
+        const providersJson = process.env.ROUTER_PROVIDERS;
+        return providersJson ? JSON.parse(providersJson) : [];
+      } catch {
+        return [];
+      }
+    })(),
+    rules: (() => {
+      try {
+        const rulesJson = process.env.ROUTER_RULES;
+        return rulesJson ? JSON.parse(rulesJson) : [];
+      } catch {
+        return [];
+      }
+    })(),
+  } as RouterConfig,
 };
 
 // ==================== 配置验证 ====================
@@ -304,6 +363,8 @@ export function validateConfig(): void {
   console.log(`   - 日志级别: ${config.logging.level}`);
   console.log(`   - 日志格式: ${config.logging.format}`);
   console.log(`   - Stream 模式: 启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
+  console.log(`   - 媒体处理: ${config.media.enabled ? '启用' : '禁用'}`);
+  console.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
 }
 
 // 导出配置验证函数供启动时调用
