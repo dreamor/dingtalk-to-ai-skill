@@ -11,6 +11,8 @@ import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
 import { updateAdminSessionWebhook, getAdminConversationId, notifyError, isAlertEnabled } from '../utils/alert';
+import { parseCommand } from '../commands/commandParser';
+import type { CommandHandler, CommandDeps } from '../commands/commandHandler';
 
 export interface MessageHandler {
   (
@@ -36,6 +38,7 @@ interface SessionInfo {
 export class DingtalkStreamService {
   private client: DWClient | null = null;
   private messageHandler: MessageHandler | null = null;
+  private commandHandler: CommandHandler | null = null;
   private isConnected: boolean = false;
   private connectionStartTime: number = 0;
   private lastHeartbeatTime: number = 0;
@@ -74,6 +77,10 @@ export class DingtalkStreamService {
 
   setMessageHandler(handler: MessageHandler): void {
     this.messageHandler = handler;
+  }
+
+  setCommandHandler(handler: CommandHandler): void {
+    this.commandHandler = handler;
   }
 
   async start(): Promise<void> {
@@ -378,6 +385,24 @@ export class DingtalkStreamService {
         console.log(`[Stream] [${messageId}] sessionWebhook: ${sessionWebhook ? 'yes' : 'no'}`);
 
         // Call message handler (async, don't wait)
+        // 检查是否为 / 命令
+        const parsedCommand = parseCommand(messageContent);
+        if (parsedCommand && this.commandHandler) {
+          console.log(`[Stream] [${messageId}] Command detected: /${parsedCommand.command}`);
+          try {
+            const response = await this.commandHandler.handle(parsedCommand, userId, conversationId || '');
+            if (sessionWebhook) {
+              await this.sendMarkdownMessage(conversationId!, '命令结果', response);
+            }
+          } catch (error) {
+            console.error(`[Stream] [${messageId}] Command handling failed:`, error);
+            if (sessionWebhook) {
+              await this.sendTextMessage(conversationId!, '❌ 命令处理失败，请稍后重试');
+            }
+          }
+          return; // 命令处理完毕，不进入 AI 流程
+        }
+
         if (this.messageHandler && sessionWebhook) {
           console.log(`[Stream] [${messageId}] Starting async processing...`);
 
