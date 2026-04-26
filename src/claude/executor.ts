@@ -217,6 +217,11 @@ export class ClaudeCodeExecutor {
   private buildPromptWithContext(prompt: string, context?: MessageContext): string {
     let fullPrompt = `你是一个友好的AI助手，正在与用户在钉钉群聊中直接对话。请直接回答用户的问题，不要询问项目、代码或任务相关的话题。\n\n`;
 
+    // 注入项目记忆上下文
+    if (context?.memoryContext) {
+      fullPrompt += `${context.memoryContext}\n\n`;
+    }
+
     if (context?.history && context.history.length > 0) {
       // 如果有历史消息，构建对话上下文
       const historyText = context.history
