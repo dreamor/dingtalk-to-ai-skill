@@ -33,6 +33,8 @@ import { CardBuilder, CardSender } from '../dingtalk/cards';
 import { Scheduler } from '../scheduler';
 import { parseCommand } from '../commands/commandParser';
 import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
+import { ProviderRegistry, MessageRouter } from '../router';
+import type { RoutingRule } from '../router';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -78,6 +80,8 @@ export class GatewayServer {
   private cardSender: CardSender | null = null;
   private scheduler: Scheduler | null = null;
   private commandHandler: CommandHandler;
+  private router: MessageRouter | null = null;
+  private providerRegistry: ProviderRegistry | null = null;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
   private consumerTimer: NodeJS.Timeout | null = null;
@@ -151,6 +155,12 @@ export class GatewayServer {
     this.scheduler = scheduler;
   }
 
+  setRouter(router: MessageRouter, registry: ProviderRegistry): void {
+    this.router = router;
+    this.providerRegistry = registry;
+    console.log('[Gateway] Router 已设置');
+  }
+
   private setupMiddleware(): void {
     this.app.use(express.json());
 
@@ -161,6 +171,7 @@ export class GatewayServer {
     this.app.use('/api/status', this.authMiddleware.bind(this));
     this.app.use('/api/doctor', this.authMiddleware.bind(this));
     this.app.use('/api/scheduler', this.authMiddleware.bind(this));
+    this.app.use('/api/router', this.authMiddleware.bind(this));
 
     this.app.use((req: Request, _res: Response, next: NextFunction) => {
       console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -402,6 +413,92 @@ export class GatewayServer {
       }
       const task = scheduler.toggleTask(req.params.id);
       res.json({ success: !!task,  task: task, message: task ? `任务已${task.enabled ? '启用' : '停用'}` : '任务不存在' });
+    });
+
+    // 路由器 API
+    this.app.get('/api/router/providers', (_req: Request, res: Response) => {
+      if (!this.providerRegistry) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      res.json({ success: true,  data: { providers: this.providerRegistry.list(), default: this.providerRegistry.getDefaultName() } });
+    });
+
+    this.app.post('/api/router/providers', (req: Request, res: Response) => {
+      if (!this.providerRegistry) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      try {
+        const { name, type, command, args, timeout, enabled } = req.body;
+        if (!name || !type || !command) {
+          res.status(400).json({ success: false, message: '缺少必要参数：name, type, command' });
+          return;
+        }
+        this.providerRegistry.register({ name, type, command, args: args || [], timeout: timeout || 120000, enabled: enabled !== false });
+        res.json({ success: true, message: `Provider "${name}" 已注册` });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ success: false, message: msg });
+      }
+    });
+
+    this.app.delete('/api/router/providers/:name', (req: Request, res: Response) => {
+      if (!this.providerRegistry) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      const deleted = this.providerRegistry.unregister(req.params.name);
+      res.json({ success: deleted, message: deleted ? 'Provider 已注销' : 'Provider 不存在' });
+    });
+
+    this.app.get('/api/router/rules', (_req: Request, res: Response) => {
+      if (!this.router) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      res.json({ success: true,  data: { rules: this.router.listRules() } });
+    });
+
+    this.app.post('/api/router/rules', (req: Request, res: Response) => {
+      if (!this.router) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      try {
+        const { name, enabled, priority, condition, provider } = req.body;
+        if (!name || !condition || !provider) {
+          res.status(400).json({ success: false, message: '缺少必要参数：name, condition, provider' });
+          return;
+        }
+        const rule = this.router.addRule({ name, enabled: enabled !== false, priority: priority || 100, condition, provider });
+        res.json({ success: true,  data: { rule } });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ success: false, message: msg });
+      }
+    });
+
+    this.app.delete('/api/router/rules/:id', (req: Request, res: Response) => {
+      if (!this.router) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      const deleted = this.router.removeRule(req.params.id);
+      res.json({ success: deleted, message: deleted ? '规则已删除' : '规则不存在' });
+    });
+
+    this.app.patch('/api/router/rules/:id/toggle', (req: Request, res: Response) => {
+      if (!this.router) {
+        res.status(503).json({ success: false, message: 'Router 未启用' });
+        return;
+      }
+      const rule = this.router.toggleRule(req.params.id);
+      if (rule) {
+        res.json({ success: true,  data: { rule } });
+      } else {
+        res.status(404).json({ success: false, message: '规则不存在' });
+      }
     });
   }
 
