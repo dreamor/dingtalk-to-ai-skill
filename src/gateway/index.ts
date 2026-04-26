@@ -30,6 +30,8 @@ import {
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
 import { Scheduler } from '../scheduler';
+import { parseCommand } from '../commands/commandParser';
+import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -72,7 +74,8 @@ export class GatewayServer {
   private concurrencyController: ConcurrencyController;
   private deduplicator: MessageDeduplicator;
   private retrySender: RetrySender;
-  private scheduler: Scheduler | null = null;
+private scheduler: Scheduler | null = null;
+  private commandHandler: CommandHandler;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
   private consumerTimer: NodeJS.Timeout | null = null;
@@ -92,6 +95,12 @@ export class GatewayServer {
       baseDelay: 5000,
       maxDelay: 300000,
       checkInterval: 10000,
+    });
+
+    // 初始化命令处理器
+    this.commandHandler = new CommandHandler({
+      sessionManager: deps.sessionManager,
+      messageQueue: deps.messageQueue,
     });
 
     const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
@@ -132,6 +141,8 @@ export class GatewayServer {
    */
   setStreamService(service: DingtalkStreamService): void {
     this.streamService = service;
+    // 将命令处理器注入到 Stream 服务
+    service.setCommandHandler(this.commandHandler);
   }
 
   setScheduler(scheduler: Scheduler): void {
@@ -597,6 +608,26 @@ export class GatewayServer {
    */
   private async processMessageInternal(request: GatewayRequest): Promise<GatewayResponse> {
     const { msg, userId = 'unknown', userName = '用户' } = request;
+
+    // 检查是否为 / 命令
+    const parsedCommand = parseCommand(msg);
+    if (parsedCommand) {
+      console.log(`[Gateway] Command detected: /${parsedCommand.command} from ${userName}`);
+      try {
+        const response = await this.commandHandler.handle(parsedCommand, userId, '');
+        return {
+          success: true,
+          message: '命令处理完成',
+          data: { result: response },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : '命令处理失败',
+        };
+      }
+    }
+
     const startTime = Date.now();
     const messageId = generateMessageId();
 
