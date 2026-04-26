@@ -29,6 +29,7 @@ import {
   formatBusyMessage,
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
+import { CardBuilder, CardSender } from '../dingtalk/cards';
 import { Scheduler } from '../scheduler';
 import { parseCommand } from '../commands/commandParser';
 import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
@@ -74,7 +75,8 @@ export class GatewayServer {
   private concurrencyController: ConcurrencyController;
   private deduplicator: MessageDeduplicator;
   private retrySender: RetrySender;
-private scheduler: Scheduler | null = null;
+  private cardSender: CardSender | null = null;
+  private scheduler: Scheduler | null = null;
   private commandHandler: CommandHandler;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
@@ -311,6 +313,50 @@ private scheduler: Scheduler | null = null;
           summary: { pass: passCount, warn: warnCount, fail: failCount },
         },
       });
+    });
+
+    // 互动卡片 API
+    this.app.post('/api/card/send', async (req: Request, res: Response) => {
+      try {
+        const { conversationId, title, content, buttons, imageUrl } = req.body;
+
+        if (!conversationId || !title || !content) {
+          res.status(400).json({
+            success: false,
+            message: '缺少必要参数：conversationId, title, content',
+          });
+          return;
+        }
+
+        if (!this.streamService) {
+          res.status(503).json({
+            success: false,
+            message: 'Stream 服务未连接',
+          });
+          return;
+        }
+
+        const cardData = CardBuilder.createMarkdownCard({
+          title,
+          content,
+          buttons,
+          imageUrl,
+        });
+
+        const sent = await this.streamService.sendCardMessage(conversationId, cardData);
+
+        res.json({
+          success: sent,
+          message: sent ? '卡片发送成功' : '卡片发送失败',
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error('[Gateway] 发送卡片失败:', msg);
+        res.status(500).json({
+          success: false,
+          message: `发送卡片失败: ${msg}`,
+        });
+      }
     });
 
     // 定时任务管理
