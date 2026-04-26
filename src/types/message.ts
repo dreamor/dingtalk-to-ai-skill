@@ -56,4 +56,5 @@ export interface MessageContext {
   userName?: string;
   conversationId?: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  memoryContext?: string;
 }

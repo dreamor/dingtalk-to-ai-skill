@@ -25,12 +25,14 @@ import {
 import { enableGlobalSanitize } from './utils/logger';
 import { Scheduler } from './scheduler';
 import { ProviderRegistry, MessageRouter } from './router';
+import { MemoryManager, MemoryStore } from './memory';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
 let globalGateway: GatewayServer | null = null;
 let globalSessionManager: SessionManager | null = null;
 let globalScheduler: Scheduler | null = null;
+let globalMemoryManager: MemoryManager | null = null;
 
 async function main(): Promise<void> {
   // 启用全局日志脱敏
@@ -101,6 +103,22 @@ async function main(): Promise<void> {
     console.log(`✅ 定时任务调度器已启动 (${scheduler.listTasks().length} 个任务)`);
   }
 
+  // 初始化项目记忆模块
+  let memoryManager: MemoryManager | null = null;
+  if (config.memory.enabled) {
+    const memoryStore = new MemoryStore();
+    memoryManager = new MemoryManager(memoryStore, sessionManager, {
+      autoSummarizeEnabled: config.memory.autoSummarizeEnabled,
+      summarizeThreshold: config.memory.summarizeThreshold,
+      maxContextMemories: config.memory.maxContextMemories,
+      autoMemoryMaxAge: config.memory.autoMemoryMaxAge,
+      boostOnAccess: config.memory.boostOnAccess,
+      boostIncrement: config.memory.boostIncrement,
+    });
+    globalMemoryManager = memoryManager;
+    console.log(`✅ 项目记忆模块已启动 (自动摘要: ${config.memory.autoSummarizeEnabled ? '启用' : '禁用'})`);
+  }
+
   // 创建 Gateway 服务
   const gateway = new GatewayServer(
     dingtalkService,
@@ -111,6 +129,7 @@ async function main(): Promise<void> {
       concurrencyController,
       deduplicator,
       openCodeExecutor,
+      memoryManager: memoryManager ?? undefined,
     }
   );
   globalGateway = gateway;
