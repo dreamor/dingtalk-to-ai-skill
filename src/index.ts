@@ -23,11 +23,13 @@ import {
   setStreamService 
 } from './utils/alert';
 import { enableGlobalSanitize } from './utils/logger';
+import { Scheduler } from './scheduler';
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
 let globalGateway: GatewayServer | null = null;
 let globalSessionManager: SessionManager | null = null;
+let globalScheduler: Scheduler | null = null;
 
 async function main(): Promise<void> {
   // 启用全局日志脱敏
@@ -88,6 +90,15 @@ async function main(): Promise<void> {
   console.log(`   - 流量控制：已启动 (令牌：${config.messageQueue.rateLimitMaxTokens})`);
   console.log(`   - 并发控制：已启动 (用户：${config.messageQueue.maxConcurrentPerUser})`);
   console.log(`   - AI 超时：${config.ai.timeout / 1000}秒`);
+
+  // 初始化定时任务调度器
+  const scheduler = new Scheduler(config.scheduler);
+  globalScheduler = scheduler;
+  scheduler.setMessageQueue(messageQueue);
+  await scheduler.init();
+  if (config.scheduler.enabled) {
+    console.log(`✅ 定时任务调度器已启动 (${scheduler.listTasks().length} 个任务)`);
+  }
 
   // 创建 Gateway 服务
   const gateway = new GatewayServer(
@@ -231,6 +242,17 @@ async function cleanupResources(): Promise<void> {
       console.log('   ✅ 会话管理器已清理');
     } catch (error) {
       console.error('   ❌ 清理会话管理器时出错:', error);
+    }
+  }
+
+  // 停止调度器
+  if (globalScheduler) {
+    try {
+      console.log('   - 停止调度器...');
+      globalScheduler.stop();
+      console.log('   ✅ 调度器已停止');
+    } catch (error) {
+      console.error('   ❌ 停止调度器时出错:', error);
     }
   }
 

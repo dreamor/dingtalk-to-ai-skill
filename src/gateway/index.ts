@@ -29,6 +29,7 @@ import {
   formatBusyMessage,
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
+import { Scheduler } from '../scheduler';
 import { parseCommand } from '../commands/commandParser';
 import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
 
@@ -73,6 +74,7 @@ export class GatewayServer {
   private concurrencyController: ConcurrencyController;
   private deduplicator: MessageDeduplicator;
   private retrySender: RetrySender;
+private scheduler: Scheduler | null = null;
   private commandHandler: CommandHandler;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
@@ -143,6 +145,10 @@ export class GatewayServer {
     service.setCommandHandler(this.commandHandler);
   }
 
+  setScheduler(scheduler: Scheduler): void {
+    this.scheduler = scheduler;
+  }
+
   private setupMiddleware(): void {
     this.app.use(express.json());
 
@@ -152,6 +158,7 @@ export class GatewayServer {
     this.app.use('/api/queue', this.authMiddleware.bind(this));
     this.app.use('/api/status', this.authMiddleware.bind(this));
     this.app.use('/api/doctor', this.authMiddleware.bind(this));
+    this.app.use('/api/scheduler', this.authMiddleware.bind(this));
 
     this.app.use((req: Request, _res: Response, next: NextFunction) => {
       console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -299,11 +306,56 @@ export class GatewayServer {
 
       res.json({
         success: failCount === 0,
-        data: {
+         data: {
           results,
           summary: { pass: passCount, warn: warnCount, fail: failCount },
         },
       });
+    });
+
+    // 定时任务管理
+    this.app.get('/api/scheduler', (_req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      res.json({ success: true, data: scheduler.getStatus() });
+    });
+
+    this.app.post('/api/scheduler', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const { name, cron, prompt, conversationId, enabled } = req.body;
+      if (!name || !cron || !prompt || !conversationId) {
+        res.json({ success: false, message: '缺少必填字段: name, cron, prompt, conversationId' });
+        return;
+      }
+      const task = scheduler.addTask({ name, cron, prompt, conversationId, enabled });
+      res.json({ success: true,  task });
+    });
+
+    this.app.delete('/api/scheduler/:id', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const removed = scheduler.removeTask(req.params.id);
+      res.json({ success: removed, message: removed ? '任务已删除' : '任务不存在' });
+    });
+
+    this.app.patch('/api/scheduler/:id/toggle', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const task = scheduler.toggleTask(req.params.id);
+      res.json({ success: !!task,  task: task, message: task ? `任务已${task.enabled ? '启用' : '停用'}` : '任务不存在' });
     });
   }
 
