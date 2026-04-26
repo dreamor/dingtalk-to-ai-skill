@@ -77,6 +77,19 @@ export interface LoggingConfig {
   filePath?: string;
 }
 
+export interface SchedulerTaskConfig {
+  name: string;
+  cron: string;
+  prompt: string;
+  conversationId: string;
+  enabled?: boolean;
+}
+
+export interface SchedulerConfig {
+  enabled: boolean;
+  tasks: SchedulerTaskConfig[];
+}
+
 // ==================== 配置验证错误 ====================
 
 export class ConfigValidationError extends Error {
@@ -205,6 +218,18 @@ export const config = {
     enableFile: process.env.LOG_ENABLE_FILE === 'true',
     filePath: process.env.LOG_FILE_PATH,
   } as LoggingConfig,
+
+  scheduler: {
+    enabled: process.env.SCHEDULER_ENABLED === 'true',
+    tasks: (() => {
+      try {
+        const tasksJson = process.env.SCHEDULER_TASKS;
+        return tasksJson ? JSON.parse(tasksJson) : [];
+      } catch {
+        return [];
+      }
+    })(),
+  } as SchedulerConfig,
 };
 
 // ==================== 配置验证 ====================

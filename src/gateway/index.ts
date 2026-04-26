@@ -30,6 +30,9 @@ import {
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
 import { CardBuilder, CardSender } from '../dingtalk/cards';
+import { Scheduler } from '../scheduler';
+import { parseCommand } from '../commands/commandParser';
+import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -73,6 +76,8 @@ export class GatewayServer {
   private deduplicator: MessageDeduplicator;
   private retrySender: RetrySender;
   private cardSender: CardSender | null = null;
+  private scheduler: Scheduler | null = null;
+  private commandHandler: CommandHandler;
   private server: ReturnType<Express['listen']> | null = null;
   private consumerRunning: boolean = false;
   private consumerTimer: NodeJS.Timeout | null = null;
@@ -92,6 +97,12 @@ export class GatewayServer {
       baseDelay: 5000,
       maxDelay: 300000,
       checkInterval: 10000,
+    });
+
+    // 初始化命令处理器
+    this.commandHandler = new CommandHandler({
+      sessionManager: deps.sessionManager,
+      messageQueue: deps.messageQueue,
     });
 
     const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
@@ -132,6 +143,12 @@ export class GatewayServer {
    */
   setStreamService(service: DingtalkStreamService): void {
     this.streamService = service;
+    // 将命令处理器注入到 Stream 服务
+    service.setCommandHandler(this.commandHandler);
+  }
+
+  setScheduler(scheduler: Scheduler): void {
+    this.scheduler = scheduler;
   }
 
   private setupMiddleware(): void {
@@ -143,6 +160,7 @@ export class GatewayServer {
     this.app.use('/api/queue', this.authMiddleware.bind(this));
     this.app.use('/api/status', this.authMiddleware.bind(this));
     this.app.use('/api/doctor', this.authMiddleware.bind(this));
+    this.app.use('/api/scheduler', this.authMiddleware.bind(this));
 
     this.app.use((req: Request, _res: Response, next: NextFunction) => {
       console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
@@ -290,7 +308,7 @@ export class GatewayServer {
 
       res.json({
         success: failCount === 0,
-        data: {
+         data: {
           results,
           summary: { pass: passCount, warn: warnCount, fail: failCount },
         },
@@ -339,6 +357,51 @@ export class GatewayServer {
           message: `发送卡片失败: ${msg}`,
         });
       }
+    });
+
+    // 定时任务管理
+    this.app.get('/api/scheduler', (_req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      res.json({ success: true, data: scheduler.getStatus() });
+    });
+
+    this.app.post('/api/scheduler', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const { name, cron, prompt, conversationId, enabled } = req.body;
+      if (!name || !cron || !prompt || !conversationId) {
+        res.json({ success: false, message: '缺少必填字段: name, cron, prompt, conversationId' });
+        return;
+      }
+      const task = scheduler.addTask({ name, cron, prompt, conversationId, enabled });
+      res.json({ success: true,  task });
+    });
+
+    this.app.delete('/api/scheduler/:id', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const removed = scheduler.removeTask(req.params.id);
+      res.json({ success: removed, message: removed ? '任务已删除' : '任务不存在' });
+    });
+
+    this.app.patch('/api/scheduler/:id/toggle', (req: Request, res: Response) => {
+      const scheduler = this.scheduler;
+      if (!scheduler) {
+        res.json({ success: false, message: '调度器未启用' });
+        return;
+      }
+      const task = scheduler.toggleTask(req.params.id);
+      res.json({ success: !!task,  task: task, message: task ? `任务已${task.enabled ? '启用' : '停用'}` : '任务不存在' });
     });
   }
 
@@ -591,6 +654,26 @@ export class GatewayServer {
    */
   private async processMessageInternal(request: GatewayRequest): Promise<GatewayResponse> {
     const { msg, userId = 'unknown', userName = '用户' } = request;
+
+    // 检查是否为 / 命令
+    const parsedCommand = parseCommand(msg);
+    if (parsedCommand) {
+      console.log(`[Gateway] Command detected: /${parsedCommand.command} from ${userName}`);
+      try {
+        const response = await this.commandHandler.handle(parsedCommand, userId, '');
+        return {
+          success: true,
+          message: '命令处理完成',
+          data: { result: response },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : '命令处理失败',
+        };
+      }
+    }
+
     const startTime = Date.now();
     const messageId = generateMessageId();
 
