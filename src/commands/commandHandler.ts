@@ -5,7 +5,6 @@ import { ParsedCommand, COMMANDS, CommandName } from './commandParser';
 import { SessionManager } from '../session-manager';
 import { MessageQueue } from '../message-queue/messageQueue';
 import { config } from '../config';
-import { getAdminConversationId } from '../utils/alert';
 
 export interface CommandDeps {
   sessionManager: SessionManager;
@@ -23,22 +22,11 @@ export class CommandHandler {
   /**
    * 处理命令，返回 markdown 格式的响应
    */
-  async handle(
-    parsed: ParsedCommand,
-    userId: string,
-    conversationId: string
-  ): Promise<string> {
+  async handle(parsed: ParsedCommand, userId: string, conversationId: string): Promise<string> {
     const { command, args } = parsed;
-    const isAdmin = this.isAdmin(userId);
 
     if (!this.isValidCommand(command)) {
       return `❌ 未知命令：/${command}\n\n输入 /help 查看可用命令`;
-    }
-
-    const cmdDef = COMMANDS[command as CommandName];
-
-    if (cmdDef.adminOnly && !isAdmin) {
-      return '⛔ 权限不足，此命令仅管理员可用';
     }
 
     switch (command) {
@@ -63,11 +51,6 @@ export class CommandHandler {
     }
   }
 
-  private isAdmin(userId: string): boolean {
-    const adminId = getAdminConversationId();
-    return adminId === userId;
-  }
-
   private isValidCommand(command: string): command is CommandName {
     return command in COMMANDS;
   }
@@ -75,10 +58,8 @@ export class CommandHandler {
   private handleHelp(): string {
     const lines = ['## 📋 可用命令\n'];
     for (const [name, def] of Object.entries(COMMANDS)) {
-      const badge = def.adminOnly ? ' 🔒' : '';
-      lines.push(`- \`/${name}\` ${def.description}${badge}`);
+      lines.push(`- \`/${name}\` ${def.description}`);
     }
-    lines.push('\n🔒 = 仅管理员可用');
     return lines.join('\n');
   }
 
@@ -127,9 +108,7 @@ export class CommandHandler {
     const lines = [`## 📜 最近 ${history.length} 条对话\n`];
     for (const msg of history) {
       const role = msg.type === 'user' ? '👤' : '🤖';
-      const content = msg.content.length > 100
-        ? msg.content.slice(0, 100) + '...'
-        : msg.content;
+      const content = msg.content.length > 100 ? msg.content.slice(0, 100) + '...' : msg.content;
       lines.push(`${role} ${content}`);
     }
     return lines.join('\n');

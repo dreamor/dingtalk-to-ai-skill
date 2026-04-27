@@ -78,20 +78,17 @@ export class ClaudeCodeExecutor {
       const args = this.buildCommandArgs();
 
       // 使用重试机制处理临时性故障
-      const result = await withRetry(
-        () => this.runCommand(args, fullPrompt),
-        {
-          maxRetries: this.config.maxRetries,
-          baseDelay: this.config.retryBaseDelay || 1000,
-          maxDelay: this.config.retryMaxDelay || 10000,
-          exponential: true,
-          onRetry: (attempt, error, delay) => {
-            console.warn(
-              `[Claude Code] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
-            );
-          },
-        }
-      );
+      const result = await withRetry(() => this.runCommand(args, fullPrompt), {
+        maxRetries: this.config.maxRetries,
+        baseDelay: this.config.retryBaseDelay || 1000,
+        maxDelay: this.config.retryMaxDelay || 10000,
+        exponential: true,
+        onRetry: (attempt, error, delay) => {
+          console.warn(
+            `[Claude Code] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
+          );
+        },
+      });
 
       // 解析输出
       const parsedOutput = this.parseOutput(result.output);
@@ -141,7 +138,7 @@ export class ClaudeCodeExecutor {
   private parseOutput(output: string): string {
     // 移除 ANSI 颜色代码
     const cleaned = output.replace(/\x1b\[[0-9;]*m/g, '');
-    
+
     // 尝试解析 JSON 格式
     try {
       const json = JSON.parse(cleaned);
@@ -154,15 +151,17 @@ export class ClaudeCodeExecutor {
     } catch {
       // 不是 JSON，保持原有逻辑
     }
-    
+
     // 兼容非 JSON 输出
     const lines = cleaned.split('\n').filter(line => {
       const trimmed = line.trim();
-      return trimmed && 
-             !trimmed.startsWith('>') && 
-             !trimmed.startsWith('⚠') && 
-             !trimmed.startsWith('请') &&
-             trimmed.length > 0;
+      return (
+        trimmed &&
+        !trimmed.startsWith('>') &&
+        !trimmed.startsWith('⚠') &&
+        !trimmed.startsWith('请') &&
+        trimmed.length > 0
+      );
     });
 
     return lines.join('\n').trim() || cleaned.trim();
@@ -173,9 +172,9 @@ export class ClaudeCodeExecutor {
    */
   private filterWarnings(text: string): string {
     if (!text) return text;
-    
+
     let result = text;
-    
+
     // 移除所有 Claude Code 的启动警告和提示
     const warningPatterns = [
       /我已注意到您使用了.*?标志.*?请问您需要我完成什么任务？\n?/gi,
@@ -200,14 +199,14 @@ export class ClaudeCodeExecutor {
       /●.*?执行 git 操作\n?/gi,
       /请问您今天需要我帮您处理什么任务\n?/gi,
     ];
-    
+
     for (const pattern of warningPatterns) {
       result = result.replace(pattern, '');
     }
 
     // 移除空行
     result = result.replace(/\n{3,}/g, '\n\n');
-    
+
     return result.trim();
   }
 
@@ -239,33 +238,27 @@ export class ClaudeCodeExecutor {
 
   /**
    * 构建命令参数
-   * Claude Code CLI 调用方式: claude -p --dangerously-skip-permissions
+   * Claude Code CLI 调用方式: claude -p
    * prompt 通过 stdin 传递
-   * 使用 JSON 格式输出以便正确解析
    */
   private buildCommandArgs(): string[] {
-    const args = ['-p', '--dangerously-skip-permissions', '--output-format', 'json'];
-    if (this.config.model) {
-      args.push('--model', this.config.model);
-    }
-    return args;
+    return ['-p', '--dangerously-skip-permissions'];
   }
 
   /**
    * 执行命令
    */
   private runCommand(args: string[], stdinInput: string): Promise<ClaudeCodeResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = '';
       let stderr = '';
       let processInstance: ChildProcess | null = null;
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      // 日志中隐藏敏感参数
-      console.log(`[Claude Code] 执行命令: ${this.config.command} -p <stdin>`);
+      console.log(`[Claude Code] 执行命令: ${this.config.command} ${args.join(' ')} <stdin>`);
 
-      // 启动 Claude Code CLI 进程
+      // 启动 Claude Code CLI 进程，继承当前进程环境变量
       processInstance = spawn(this.config.command, args, {
         cwd: this.config.workingDir,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -292,7 +285,7 @@ export class ClaudeCodeExecutor {
       });
 
       // 进程结束
-      processInstance.on('close', (code) => {
+      processInstance.on('close', code => {
         if (resolved) return;
         resolved = true;
 
@@ -303,11 +296,13 @@ export class ClaudeCodeExecutor {
         }
 
         console.log(`[Claude Code] 进程结束，退出码: ${code}`);
+        console.log(`[Claude Code] stdout: ${stdout.substring(0, 500)}`);
+        console.log(`[Claude Code] stderr: ${stderr.substring(0, 500)}`);
 
         // 先过滤输出中的警告
         const filteredOutput = this.filterWarnings(stdout.trim());
         const filteredError = stderr.trim() ? this.filterWarnings(stderr.trim()) : '';
-        
+
         resolve({
           success: code === 0,
           output: filteredOutput,
@@ -318,7 +313,7 @@ export class ClaudeCodeExecutor {
       });
 
       // 错误处理
-      processInstance.on('error', (error) => {
+      processInstance.on('error', error => {
         if (resolved) return;
         resolved = true;
 
@@ -424,7 +419,7 @@ export class ClaudeCodeExecutor {
     onChunk: (chunk: string) => void,
     startTime: number
   ): Promise<ClaudeCodeResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = '';
       let stderr = '';
       let processInstance: ChildProcess | null = null;
@@ -462,7 +457,7 @@ export class ClaudeCodeExecutor {
         }
       });
 
-      processInstance.on('close', (code) => {
+      processInstance.on('close', code => {
         if (resolved) return;
         resolved = true;
 
@@ -482,7 +477,7 @@ export class ClaudeCodeExecutor {
         });
       });
 
-      processInstance.on('error', (error) => {
+      processInstance.on('error', error => {
         if (resolved) return;
         resolved = true;
 
@@ -522,12 +517,12 @@ export class ClaudeCodeExecutor {
    * 检查 Claude Code CLI 是否可用
    */
   async isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const proc = spawn(this.config.command, ['--version'], {
         stdio: 'ignore',
       });
 
-      proc.on('close', (code) => {
+      proc.on('close', code => {
         resolve(code === 0);
       });
 
@@ -554,8 +549,6 @@ export class ClaudeCodeExecutor {
 /**
  * 创建 Claude Code 执行器实例
  */
-export function createClaudeCodeExecutor(
-  options?: Partial<ClaudeCodeConfig>
-): ClaudeCodeExecutor {
+export function createClaudeCodeExecutor(options?: Partial<ClaudeCodeConfig>): ClaudeCodeExecutor {
   return new ClaudeCodeExecutor(options);
 }

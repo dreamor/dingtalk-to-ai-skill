@@ -32,14 +32,14 @@ export function parseCommand(input: string): ParsedCommand | null {
 
 /** 所有支持的命令 */
 export const COMMANDS = {
-  help: { description: '显示所有可用命令', adminOnly: false },
-  status: { description: '显示系统状态', adminOnly: false },
-  model: { description: '查看/切换 AI 模型', adminOnly: true },
-  history: { description: '显示最近对话历史', adminOnly: false },
-  queue: { description: '显示消息队列状态', adminOnly: false },
-  config: { description: '显示当前配置（脱敏）', adminOnly: true },
-  reset: { description: '重置当前会话', adminOnly: true },
-  remember: { description: '保存记忆（/remember key value）', adminOnly: true },
+  help: { description: '显示所有可用命令' },
+  status: { description: '显示系统状态' },
+  model: { description: '查看/切换 AI 模型' },
+  history: { description: '显示最近对话历史' },
+  queue: { description: '显示消息队列状态' },
+  config: { description: '显示当前配置（脱敏）' },
+  reset: { description: '重置当前会话' },
+  remember: { description: '保存记忆（/remember key value）' },
 } as const;
 
 export type CommandName = keyof typeof COMMANDS;

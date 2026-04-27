@@ -1,6 +1,6 @@
 {
   "name": "dingtalk-to-opencode-skill",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "钉钉群聊与 OpenCode CLI 集成系统，支持消息可靠处理和自动重试",
   "main": "dist/index.js",
   "repository": {

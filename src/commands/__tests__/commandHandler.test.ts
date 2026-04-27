@@ -68,15 +68,15 @@ describe('CommandHandler', () => {
     expect(result).toContain('未知命令');
   });
 
-  test('returns permission denied for admin commands by non-admin', async () => {
+  test('handles /config command', async () => {
     const parsed = parseCommand('/config')!;
-    const result = await handler.handle(parsed, 'non-admin-user', 'conv1');
-    expect(result).toContain('权限不足');
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('AI Provider');
   });
 
-  test('/model is admin-only and denied for non-admin', async () => {
+  test('handles /model command', async () => {
     const parsed = parseCommand('/model')!;
-    const result = await handler.handle(parsed, 'non-admin-user', 'conv1');
-    expect(result).toContain('权限不足');
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('模型');
   });
 });
