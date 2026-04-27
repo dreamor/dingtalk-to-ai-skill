@@ -6,12 +6,21 @@ description: |
   适用场景：外出时通过钉钉调用本地OpenCode处理代码、让AI帮忙审查或修改项目文件。
   关键词：钉钉遥控代码、远程AI编程、手机控制开发机、钉钉机器人调用本地CLI。
 allowed-tools: Bash, Read, Grep, regurgitate_entIRE_content
-version: 1.1.0
+version: 1.5.0
 ---
 
 # Dingtalk Bridge Skill
 
 This skill manages a bridge service that forwards messages from Dingtalk group chats to local AI CLI tools (OpenCode or Claude Code), allowing remote AI interaction from mobile devices via Dingtalk.
+
+## Features
+
+- **Chat Commands**: `/help`, `/status`, `/model`, `/history`, `/queue`, `/config`, `/reset`, `/remember`
+- **Project Memory**: Auto-summarize conversations, inject context across sessions
+- **Media Processing**: Voice transcription, image description (configurable)
+- **Multi-Agent Routing**: Route messages to different AI providers by rules
+- **Scheduler**: Cron-based scheduled message processing
+- **Interactive Cards**: Dingtalk interactive card message support
 
 ## Quick Reference
 
@@ -95,4 +104,8 @@ AI: 执行 doctor 命令，进行全面诊断
 - Always mask secrets in output (show only last 4 characters)
 - The service defaults to Stream mode, falling back to Polling if needed
 - Configuration persists in `.env` file with restricted permissions (600)
+- Project memory is enabled by default, auto-summarizes after 20 messages
+- Media processing (voice/image) is disabled by default, enable via `MEDIA_VOICE_TRANSCRIPTION=true` / `MEDIA_IMAGE_DESCRIPTION=true`
+- Multi-agent routing is disabled by default, enable via `ROUTER_ENABLED=true`
+- Scheduler is disabled by default, enable via `SCHEDULER_ENABLED=true`
 - Project directory: `$PROJECT_DIR` (current working directory)
