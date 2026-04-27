@@ -51,18 +51,26 @@ git clone https://github.com/dreamor/dingtalk-to-ai-skill.git ~/.claude/skills/d
 - **双 AI Provider 支持**：支持 OpenCode CLI 和 Claude Code CLI
 - **钉钉桥接**：通过钉钉群聊机器人接收消息并回复
 - **多轮对话**：自动管理会话上下文
+- **聊天命令**：支持 `/help`、`/status`、`/model` 等斜杠命令
+- **项目记忆**：自动记忆对话上下文，跨会话保留关键信息
+- **媒体处理**：支持语音转文字、图片描述等富媒体消息
+- **多 Agent 路由**：根据规则自动选择 AI Provider 处理消息
+- **定时任务**：支持 cron 格式的定时消息处理
+- **交互式卡片**：钉钉互动卡片消息支持
 - **生产级特性**：消息去重、流量控制、并发限制
 - **消息重试**：发送失败自动重试，支持指数退避
-- **SQLite 持久化**：可选的消息队列、会话持久化存储
+- **SQLite 持久化**：可选的消息队列、会话、记忆持久化存储
 - **结构化日志**：多级别日志输出，支持 JSON/Pretty 格式
 - **增强健康检查**：多维度的系统健康状态检查
 
 ## 系统架构
 
 ```
-钉钉群聊 → Stream SDK → Gateway → 消息队列 → AI CLI (OpenCode/Claude) → 响应 → 钉钉群聊
+钉钉群聊 → Stream SDK → Gateway → 消息队列 → 路由 → AI CLI (OpenCode/Claude) → 响应 → 钉钉群聊
+                              ↓              ↓
+                        SQLite 持久化    项目记忆
                               ↓
-                        SQLite 持久化 (可选)
+                     媒体处理 / 定时任务 / 交互卡片
 ```
 
 ## 快速开始（不使用 Skill）
@@ -115,14 +123,35 @@ npm run dev
 
 在钉钉群聊中发送消息，AI CLI 会在本地执行并返回结果。
 
+### 聊天命令
+
+在钉钉群聊中发送以 `/` 开头的消息即可触发命令：
+
+| 命令 | 说明 |
+|------|------|
+| `/help` | 显示所有可用命令 |
+| `/status` | 显示系统状态 |
+| `/model` | 查看/切换 AI 模型 |
+| `/history` | 显示最近对话历史 |
+| `/queue` | 显示消息队列状态 |
+| `/config` | 显示当前配置（脱敏） |
+| `/reset` | 重置当前会话 |
+| `/remember <key> <value>` | 保存记忆 |
+
 ## 管理命令
 
 ```bash
-# 启动（推荐）
-bash start.sh
+# 构建
+npm run build
+
+# 启动（PM2，推荐生产环境）
+pm2 start ecosystem.config.cjs
 
 # 停止
 pm2 stop dingtalk-bot
+
+# 重启
+pm2 restart dingtalk-bot
 
 # 状态
 pm2 status
@@ -130,11 +159,8 @@ pm2 status
 # 查看日志
 pm2 logs dingtalk-bot
 
-# 重新构建
-npm run build
-
 # 诊断
-npm run dev  # 查看输出日志
+npm run dev  # 开发模式查看输出日志
 ```
 
 ## 配置说明
@@ -154,7 +180,7 @@ npm run dev  # 查看输出日志
 | **OpenCode CLI 配置**            |                                |             |
 | `OPENCODE_COMMAND`               | OpenCode 命令                  | opencode    |
 | `OPENCODE_TIMEOUT`               | 执行超时(毫秒)                | 120000      |
-| `OPENCODE_MAX_RETRIES`           | 最大重试次数                  | 1           |
+| `OPENCODE_MAX_RETRIES`           | 最大重试次数                  | 3           |
 | `OPENCODE_WORKING_DIR`           | 工作目录                      | 当前目录    |
 | `OPENCODE_MODEL`                 | 模型名称                      | CLI 默认    |
 | `OPENCODE_MAX_INPUT_LENGTH`      | 最大输入长度(字符)            | 10000       |
@@ -163,7 +189,7 @@ npm run dev  # 查看输出日志
 | **Claude Code CLI 配置**         |                                |             |
 | `CLAUDE_COMMAND`                 | Claude Code 命令               | claude      |
 | `CLAUDE_TIMEOUT`                 | 执行超时(毫秒)                | 120000      |
-| `CLAUDE_MAX_RETRIES`             | 最大重试次数                  | 1           |
+| `CLAUDE_MAX_RETRIES`             | 最大重试次数                  | 3           |
 | `CLAUDE_WORKING_DIR`             | 工作目录                      | 当前目录    |
 | `CLAUDE_MODEL`                   | 模型名称                      | CLI 默认    |
 | `CLAUDE_MAX_INPUT_LENGTH`        | 最大输入长度(字符)            | 10000       |
@@ -176,16 +202,38 @@ npm run dev  # 查看输出日志
 | `MQ_MAX_CONCURRENT_PER_USER`     | 每用户最大并发                | 3           |
 | `MQ_MAX_CONCURRENT_GLOBAL`       | 全局最大并发                  | 10          |
 | `MQ_RATE_LIMIT_TOKENS`           | 令牌桶最大令牌数              | 10          |
+| `MQ_POLL_INTERVAL`               | 队列轮询间隔(毫秒)            | 100         |
+| `MQ_ENABLE_PERSISTENCE`          | 启用 SQLite 队列持久化        | true        |
 | **持久化存储配置**               |                                |             |
 | `STORAGE_DB_PATH`                | SQLite 数据库路径             | ./data/dingtalk.db |
 | `STORAGE_ENABLE_WAL`             | 启用 WAL 模式                 | true        |
 | `STORAGE_CLEANUP_INTERVAL`       | 清理间隔(毫秒)                | 3600000     |
 | **Stream 模式配置**              |                                |             |
 | `STREAM_ENABLED`                 | 启用 Stream 模式              | true        |
-| `STREAM_MAX_RECONNECT`           | 最大重连次数                  | 5           |
-| **轮询模式配置**                 |                                |             |
-| `POLLING_ENABLED`                | 启用轮询模式(降级方案)        | false       |
-| `POLLING_INTERVAL`               | 轮询间隔(毫秒)                | 3000        |
+| `STREAM_MAX_RECONNECT`           | 最大重连次数                  | 10          |
+| `STREAM_RECONNECT_BASE_DELAY`    | 重连基础延迟(毫秒)            | 1000        |
+| `STREAM_RECONNECT_MAX_DELAY`     | 重连最大延迟(毫秒)            | 60000       |
+| **媒体处理配置**                 |                                |             |
+| `MEDIA_ENABLED`                  | 启用媒体处理                  | true        |
+| `MEDIA_VOICE_TRANSCRIPTION`      | 启用语音转文字                | false       |
+| `MEDIA_IMAGE_DESCRIPTION`        | 启用图片描述                  | false       |
+| `MEDIA_MAX_FILE_SIZE`            | 最大文件大小(字节)            | 10485760    |
+| `MEDIA_DOWNLOAD_TIMEOUT`         | 下载超时(毫秒)                | 30000       |
+| **多 Agent 路由配置**            |                                |             |
+| `ROUTER_ENABLED`                 | 启用路由功能                  | false       |
+| `ROUTER_PROVIDERS`               | Provider 列表(JSON)           | -           |
+| `ROUTER_RULES`                   | 路由规则列表(JSON)            | -           |
+| **定时任务配置**                 |                                |             |
+| `SCHEDULER_ENABLED`              | 启用定时任务                  | false       |
+| `SCHEDULER_TASKS`                | 任务列表(JSON)                | -           |
+| **项目记忆配置**                 |                                |             |
+| `MEMORY_ENABLED`                 | 启用项目记忆                  | true        |
+| `MEMORY_AUTO_SUMMARIZE`          | 启用自动摘要                  | true        |
+| `MEMORY_SUMMARIZE_THRESHOLD`     | 摘要触发阈值(消息数)          | 20          |
+| `MEMORY_MAX_CONTEXT`             | 上下文最大记忆数              | 10          |
+| `MEMORY_AUTO_MAX_AGE`            | 自动记忆最大存活时间(毫秒)    | 7776000000  |
+| `MEMORY_BOOST_ON_ACCESS`         | 访问时提升记忆权重            | true        |
+| `MEMORY_BOOST_INCREMENT`         | 权重提升增量(0.1~1.0)         | 0.1         |
 | **告警通知配置**                 |                                |             |
 | `ALERT_ADMIN_USER_ID`            | 管理员用户 ID                  | -           |
 | `ALERT_MENTION_USERS`            | 告警 @ 用户(手机号,逗号分隔)  | -           |
@@ -218,29 +266,43 @@ npm run dev  # 查看输出日志
 
 ```
 src/
-├── dingtalk/          # 钉钉 SDK 集成 (Stream 模式)
+├── dingtalk/          # 钉钉 SDK 集成 (Stream 模式 + 交互卡片)
 ├── gateway/           # HTTP 网关
 │   ├── errorFormatter.ts  # 错误格式化
 │   ├── retrySender.ts     # 消息重试发送器
 │   ├── queueConsumer.ts   # 队列消费者
 │   └── aiDegradation.ts   # AI CLI 优雅降级
 ├── opencode/          # OpenCode 执行器
-├── claude/           # Claude Code 执行器
+├── claude/            # Claude Code 执行器
+├── commands/          # 聊天命令系统 (/help, /status 等)
+│   ├── commandParser.ts   # 命令解析
+│   └── commandHandler.ts  # 命令处理
+├── memory/            # 项目记忆模块
+│   ├── memoryStore.ts     # 记忆存储 (SQLite)
+│   └── memoryManager.ts   # 记忆管理 (自动摘要/上下文注入)
+├── media/             # 媒体处理模块
+│   ├── mediaDownloader.ts # 媒体下载
+│   └── mediaProcessor.ts  # 媒体处理 (语音/图片)
+├── router/            # 多 Agent 路由
+│   ├── provider.ts        # Provider 注册
+│   └── router.ts          # 消息路由规则
+├── scheduler/         # 定时任务调度器
+│   └── scheduler.ts       # Cron 任务调度
 ├── session-manager/   # 会话管理
-├── message-queue/    # 消息队列 (并发控制/流量限制)
-├── storage/          # SQLite 持久化存储
-├── health/           # 健康检查模块
-├── logger/           # 结构化日志
-├── types/            # TypeScript 类型定义
-└── utils/            # 工具函数
+├── message-queue/     # 消息队列 (并发控制/流量限制)
+├── storage/           # SQLite 持久化存储
+├── health/            # 健康检查模块
+├── logger/            # 结构化日志
+├── types/             # TypeScript 类型定义
+└── utils/             # 工具函数
 
 scripts/
-├── daemon.sh         # 服务管理脚本
-└── doctor.sh         # 诊断脚本
+├── daemon.sh          # 服务管理脚本
+└── doctor.sh          # 诊断脚本
 
 docs/
-├── images/           # 图片资源
-└── superpowers/     # 功能文档
+├── images/            # 图片资源
+└── superpowers/       # 功能文档
 ```
 
 ## 开发命令
@@ -258,6 +320,15 @@ npm run lint:fix       # 代码检查并自动修复
 <!-- AUTO-GENERATED END -->
 
 ## 更新日志
+
+### v1.5.0
+- 新增聊天命令系统（/help, /status, /model, /history, /queue, /config, /reset, /remember）
+- 新增项目记忆模块（自动摘要、上下文注入、访问权重提升）
+- 新增媒体处理模块（语音转文字、图片描述）
+- 新增多 Agent 路由（按规则自动选择 Provider）
+- 新增定时任务调度器（Cron 格式）
+- 新增钉钉交互式卡片消息支持
+- 移除管理员权限限制（单用户场景无需管理员概念）
 
 ### v1.4.0
 - 消息队列支持 SQLite 持久化（重启后消息不丢失）

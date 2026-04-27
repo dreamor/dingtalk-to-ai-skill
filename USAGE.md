@@ -2,7 +2,7 @@
 
 ## 概述
 
-本系统通过钉钉机器人实现与 AI CLI（OpenCode 或 Claude Code）的交互，在钉钉群聊中使用 AI 助手，支持多轮对话、上下文保持、流量控制等生产级特性。
+本系统通过钉钉机器人实现与 AI CLI（OpenCode 或 Claude Code）的交互，在钉钉群聊中使用 AI 助手，支持多轮对话、聊天命令、项目记忆、媒体处理、多 Agent 路由、定时任务等生产级特性。
 
 ## 快速开始
 
@@ -75,17 +75,41 @@ STREAM_RECONNECT_MAX_DELAY=60000   # 重连最大延迟(毫秒)
 MQ_MAX_CONCURRENT_PER_USER=3
 MQ_MAX_CONCURRENT_GLOBAL=10
 MQ_RATE_LIMIT_TOKENS=10
+MQ_ENABLE_PERSISTENCE=true         # 启用 SQLite 持久化
 
 # ========== 会话管理配置 ==========
 SESSION_TTL=1800000                # 会话超时(毫秒)
 SESSION_MAX_HISTORY=50             # 最大历史消息数
+
+# ========== 媒体处理配置 ==========
+MEDIA_ENABLED=true                 # 启用媒体处理
+MEDIA_VOICE_TRANSCRIPTION=false    # 启用语音转文字
+MEDIA_IMAGE_DESCRIPTION=false      # 启用图片描述
+MEDIA_MAX_FILE_SIZE=10485760       # 最大文件大小(10MB)
+MEDIA_DOWNLOAD_TIMEOUT=30000       # 下载超时(毫秒)
+
+# ========== 多 Agent 路由配置 ==========
+ROUTER_ENABLED=false               # 启用路由功能
+ROUTER_PROVIDERS=                  # Provider 列表(JSON)
+ROUTER_RULES=                      # 路由规则列表(JSON)
+
+# ========== 定时任务配置 ==========
+SCHEDULER_ENABLED=false            # 启用定时任务
+SCHEDULER_TASKS=                   # 任务列表(JSON)
+
+# ========== 项目记忆配置 ==========
+MEMORY_ENABLED=true                # 启用项目记忆
+MEMORY_AUTO_SUMMARIZE=true         # 启用自动摘要
+MEMORY_SUMMARIZE_THRESHOLD=20      # 摘要触发阈值(消息数)
+MEMORY_MAX_CONTEXT=10              # 上下文最大记忆数
 ```
 
 ### 3. 启动应用
 
 ```bash
-# 生产模式
-npm run build && npm start
+# 生产模式 (PM2)
+npm run build
+pm2 start ecosystem.config.cjs
 
 # 开发模式
 npm run dev
@@ -152,6 +176,80 @@ LRU 缓存实现消息去重：
 
 - 时间窗口内重复消息会被过滤
 - 基于用户 ID + 消息内容去重
+
+### 聊天命令 (CommandHandler)
+
+在钉钉群聊中发送 `/` 开头的消息即可触发命令：
+
+| 命令 | 说明 | 示例 |
+|------|------|------|
+| `/help` | 显示所有可用命令 | `/help` |
+| `/status` | 显示系统状态 | `/status` |
+| `/model` | 查看当前模型 | `/model` |
+| `/model <provider>` | 切换模型（需重启） | `/model claude` |
+| `/history` | 显示最近 5 条对话 | `/history` |
+| `/history <n>` | 显示最近 n 条对话 | `/history 10` |
+| `/queue` | 显示消息队列状态 | `/queue` |
+| `/config` | 显示当前配置（脱敏） | `/config` |
+| `/reset` | 重置当前会话 | `/reset` |
+| `/remember <key> <value>` | 保存记忆 | `/remember project_dir /path/to/project` |
+
+### 项目记忆 (MemoryManager)
+
+自动记忆对话上下文，跨会话保留关键信息：
+
+- **自动记忆**：自动提取对话中的关键信息
+- **自动摘要**：当会话消息达到阈值时自动生成摘要
+- **上下文注入**：在发送消息给 AI 时自动注入相关记忆
+- **访问权重提升**：被引用的记忆权重自动增加
+- **过期清理**：自动记忆有最大存活时间，过期后自动清理
+
+### 媒体处理 (MediaProcessor)
+
+处理钉钉消息中的富媒体内容：
+
+- **语音转文字**：将语音消息转录为文本后交给 AI 处理
+- **图片描述**：对图片内容生成描述后交给 AI 处理
+- **文件下载**：自动下载钉钉消息中的媒体文件
+
+配置示例：
+
+```bash
+MEDIA_ENABLED=true
+MEDIA_VOICE_TRANSCRIPTION=true
+MEDIA_IMAGE_DESCRIPTION=true
+```
+
+### 多 Agent 路由 (MessageRouter)
+
+根据消息内容自动选择不同的 AI Provider 处理：
+
+- **Provider 注册**：注册多个 AI Provider（OpenCode、Claude 等）
+- **路由规则**：按关键词、正则等条件匹配消息到对应 Provider
+- **降级回退**：Provider 不可用时自动回退到默认
+
+配置示例：
+
+```bash
+ROUTER_ENABLED=true
+ROUTER_PROVIDERS=[{"name":"opencode","command":"opencode"},{"name":"claude","command":"claude"}]
+ROUTER_RULES=[{"pattern":"代码|编程|bug","provider":"claude"},{"pattern":"聊天|闲聊","provider":"opencode"}]
+```
+
+### 定时任务调度器 (Scheduler)
+
+支持 Cron 格式的定时消息处理：
+
+- **Cron 表达式**：标准 5 字段 cron 格式
+- **任务管理**：动态添加/删除/暂停任务
+- **消息队列集成**：任务触发后通过消息队列处理
+
+配置示例：
+
+```bash
+SCHEDULER_ENABLED=true
+SCHEDULER_TASKS=[{"name":"daily-report","cron":"0 9 * * *","message":"生成本日工作摘要"}]
+```
 
 ## API 端点
 
@@ -238,7 +336,16 @@ A: 默认 30 分钟无活动后过期，可通过 `SESSION_TTL` 调整。
 A: 检查 CLI 是否正确安装，确认 `OPENCODE_TIMEOUT` 设置合理。
 
 **Q: Claude Code 在 Claude Code 会话中无法运行？**
-A: 使用 `unset CLAUDECODE` 后再启动服务。
+A: 使用 `unset CLAUDECODE` 后再启动服务。在 Claude Code 会话中启动本服务会导致子进程网络请求被拦截。
+
+**Q: 如何使用 PM2 管理服务？**
+A: 先 `npm run build`，然后 `pm2 start ecosystem.config.cjs`。停止用 `pm2 stop dingtalk-bot`，重启用 `pm2 restart dingtalk-bot`，查看日志用 `pm2 logs dingtalk-bot`。
+
+**Q: 项目记忆如何工作？**
+A: 记忆模块默认启用，自动提取对话关键信息并持久化到 SQLite。下次对话时自动注入相关记忆作为上下文。
+
+**Q: 如何启用语音/图片处理？**
+A: 设置 `MEDIA_ENABLED=true`、`MEDIA_VOICE_TRANSCRIPTION=true` 和 `MEDIA_IMAGE_DESCRIPTION=true`。
 
 ## License
 
