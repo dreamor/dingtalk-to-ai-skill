@@ -3,6 +3,12 @@ import { SessionManager } from '../../session-manager';
 import { MessageQueue } from '../../message-queue/messageQueue';
 import { parseCommand } from '../commandParser';
 
+const queueStatusValue = {
+  queued: 0,
+  processing: 0,
+  byPriority: { high: 0, normal: 0, low: 0 },
+};
+
 // Mock dependencies
 const mockSessionManager = {
   getHistory: jest.fn().mockResolvedValue([]),
@@ -10,11 +16,7 @@ const mockSessionManager = {
 } as unknown as SessionManager;
 
 const mockMessageQueue = {
-  getStatus: jest.fn().mockReturnValue({
-    queued: 0,
-    processing: 0,
-    byPriority: { high: 0, normal: 0, low: 0 },
-  }),
+  getStatus: jest.fn().mockReturnValue(queueStatusValue),
 } as unknown as MessageQueue;
 
 const deps: CommandDeps = {
@@ -28,6 +30,9 @@ describe('CommandHandler', () => {
   beforeEach(() => {
     handler = new CommandHandler(deps);
     jest.clearAllMocks();
+    // Re-setup mock return values after clearAllMocks
+    (mockMessageQueue.getStatus as jest.Mock).mockReturnValue(queueStatusValue);
+    (mockSessionManager.getHistory as jest.Mock).mockResolvedValue([]);
   });
 
   test('handles /help command', async () => {
@@ -59,7 +64,7 @@ describe('CommandHandler', () => {
 
   test('returns error for unknown command', async () => {
     const parsed = parseCommand('/unknown')!;
-    const result = await handler.handle(parsed, 'user1', 'conv1');
+    const result = await handler.handle(parsed, 'non-admin-user', 'conv1');
     expect(result).toContain('未知命令');
   });
 
@@ -69,9 +74,9 @@ describe('CommandHandler', () => {
     expect(result).toContain('权限不足');
   });
 
-  test('/model with no args shows current model', async () => {
+  test('/model is admin-only and denied for non-admin', async () => {
     const parsed = parseCommand('/model')!;
-    const result = await handler.handle(parsed, 'admin-id', 'conv1');
-    expect(result).toContain('当前模型');
+    const result = await handler.handle(parsed, 'non-admin-user', 'conv1');
+    expect(result).toContain('权限不足');
   });
 });
