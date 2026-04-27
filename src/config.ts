@@ -121,6 +121,18 @@ export interface RouterConfig {
   rules: RouterRuleConfig[];
 }
 
+
+
+export interface MemoryConfig {
+  enabled: boolean;
+  autoSummarizeEnabled: boolean;
+  summarizeThreshold: number;
+  maxContextMemories: number;
+  autoMemoryMaxAge: number;
+  boostOnAccess: boolean;
+  boostIncrement: number;
+}
+
 // ==================== 配置验证错误 ====================
 
 export class ConfigValidationError extends Error {
@@ -289,6 +301,16 @@ export const config = {
       }
     })(),
   } as RouterConfig,
+
+  memory: {
+    enabled: process.env.MEMORY_ENABLED !== 'false',
+    autoSummarizeEnabled: process.env.MEMORY_AUTO_SUMMARIZE !== 'false',
+    summarizeThreshold: parseEnvNumber('MEMORY_SUMMARIZE_THRESHOLD', 20, 5, 100),
+    maxContextMemories: parseEnvNumber('MEMORY_MAX_CONTEXT', 10, 1, 50),
+    autoMemoryMaxAge: parseEnvNumber('MEMORY_AUTO_MAX_AGE', 7776000000, 86400000, 31536000000),
+    boostOnAccess: process.env.MEMORY_BOOST_ON_ACCESS !== 'false',
+    boostIncrement: parseEnvNumber('MEMORY_BOOST_INCREMENT', 1, 1, 10) / 10,
+  } as MemoryConfig,
 };
 
 // ==================== 配置验证 ====================
