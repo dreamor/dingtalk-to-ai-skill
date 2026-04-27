@@ -155,17 +155,25 @@ export class OpenCodeExecutor {
    * 构建包含上下文的完整提示
    */
   private buildPromptWithContext(prompt: string, context?: MessageContext): string {
-    if (!context?.history || context.history.length === 0) {
-      return prompt;
+    const parts: string[] = [];
+
+    // 注入项目记忆上下文
+    if (context?.memoryContext) {
+      parts.push(context.memoryContext);
     }
 
     // 如果有历史消息，构建对话上下文
-    const historyText = context.history
-      .slice(-10) // 最多保留最近 10 条
-      .map(msg => `${msg.role === 'user' ? '用户' : '助手'}: ${msg.content}`)
-      .join('\n\n');
+    if (context?.history && context.history.length > 0) {
+      const historyText = context.history
+        .slice(-10) // 最多保留最近 10 条
+        .map(msg => `${msg.role === 'user' ? '用户' : '助手'}: ${msg.content}`)
+        .join('\n\n');
+      parts.push(`【对话历史】\n${historyText}`);
+    }
 
-    return `【对话历史】\n${historyText}\n\n【当前问题】\n${prompt}`;
+    parts.push(`【当前问题】\n${prompt}`);
+
+    return parts.join('\n\n');
   }
 
   /**

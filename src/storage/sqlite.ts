@@ -565,6 +565,14 @@ export class SQLiteStorage {
     return this.isInitialized;
   }
 
+
+  /**
+   * 获取底层数据库实例（供高级模块使用，如记忆存储）
+   */
+  getDb(): Database.Database {
+    return this.db;
+  }
+
   /**
    * 关闭数据库连接
    */
