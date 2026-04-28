@@ -79,4 +79,58 @@ describe('CommandHandler', () => {
     const result = await handler.handle(parsed, 'user1', 'conv1');
     expect(result).toContain('模型');
   });
+
+  test('handles /model with valid provider arg', async () => {
+    const parsed = parseCommand('/model claude')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('模型切换');
+  });
+
+  test('handles /model with invalid provider arg', async () => {
+    const parsed = parseCommand('/model invalid')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('不支持的模型');
+  });
+
+  test('handles /reset command', async () => {
+    const parsed = parseCommand('/reset')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('会话已重置');
+    expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
+  });
+
+  test('handles /remember with insufficient args', async () => {
+    const parsed = parseCommand('/remember key')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('用法');
+  });
+
+  test('handles /remember with enough args', async () => {
+    const parsed = parseCommand('/remember key value')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('记忆功能');
+  });
+
+  test('handles /history with messages', async () => {
+    (mockSessionManager.getHistory as jest.Mock).mockResolvedValue([
+      { type: 'user', content: 'hello world' },
+      { type: 'ai', content: 'Hi there!' },
+    ]);
+    const parsed = parseCommand('/history')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('最近');
+    expect(result).not.toContain('暂无');
+  });
+
+  test('handles /status with aiProviderStatus', async () => {
+    const depsWithStatus: CommandDeps = {
+      ...deps,
+      aiProviderStatus: { opencode: true, claude: false },
+    };
+    const h = new CommandHandler(depsWithStatus);
+    const parsed = parseCommand('/status')!;
+    const result = await h.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('OpenCode');
+    expect(result).toContain('Claude Code');
+  });
 });
