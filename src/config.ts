@@ -121,8 +121,6 @@ export interface RouterConfig {
   rules: RouterRuleConfig[];
 }
 
-
-
 export interface MemoryConfig {
   enabled: boolean;
   autoSummarizeEnabled: boolean;
@@ -131,6 +129,21 @@ export interface MemoryConfig {
   autoMemoryMaxAge: number;
   boostOnAccess: boolean;
   boostIncrement: number;
+}
+
+export interface StreamingConfig {
+  enabled: boolean;
+  intervalMs: number; // 更新间隔，默认 1500ms
+  minDeltaChars: number; // 最少新增字符数才触发更新，默认 30
+  maxChars: number; // 预览最大字符数，默认 2000
+  thinkingText: string; // 思考中提示文本
+  cardTemplateId: string; // AI 卡片模板 ID
+}
+
+export interface PersistentSessionConfig {
+  enabled: boolean; // 是否启用持久化会话（消除冷启动）
+  maxSessions: number; // 最大会话数，默认 10
+  idleTimeout: number; // 空闲超时（毫秒），默认 30 分钟
 }
 
 // ==================== 配置验证错误 ====================
@@ -311,6 +324,22 @@ export const config = {
     boostOnAccess: process.env.MEMORY_BOOST_ON_ACCESS !== 'false',
     boostIncrement: parseEnvNumber('MEMORY_BOOST_INCREMENT', 1, 1, 10) / 10,
   } as MemoryConfig,
+
+  streaming: {
+    enabled: process.env.STREAMING_ENABLED === 'true',
+    intervalMs: parseEnvNumber('STREAMING_INTERVAL_MS', 1500, 500, 10000),
+    minDeltaChars: parseEnvNumber('STREAMING_MIN_DELTA_CHARS', 30, 1, 500),
+    maxChars: parseEnvNumber('STREAMING_MAX_CHARS', 2000, 100, 10000),
+    thinkingText: '⏳ AI 正在思考...',
+    cardTemplateId:
+      process.env.STREAMING_CARD_TEMPLATE_ID || '82632605-8031-4963-8a92-d25e2ca8aad7.schema',
+  } as StreamingConfig,
+
+  persistentSession: {
+    enabled: process.env.PERSISTENT_SESSION_ENABLED !== 'false',
+    maxSessions: parseEnvNumber('PERSISTENT_SESSION_MAX_SESSIONS', 10, 1, 100),
+    idleTimeout: parseEnvNumber('PERSISTENT_SESSION_IDLE_TIMEOUT', 1800000, 60000, 86400000),
+  } as PersistentSessionConfig,
 };
 
 // ==================== 配置验证 ====================
@@ -387,6 +416,10 @@ export function validateConfig(): void {
   console.log(`   - Stream 模式: 启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
   console.log(`   - 媒体处理: ${config.media.enabled ? '启用' : '禁用'}`);
   console.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
+  console.log(`   - 流式输出: ${config.streaming.enabled ? '启用' : '禁用'}`);
+  console.log(
+    `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
+  );
 }
 
 // 导出配置验证函数供启动时调用
