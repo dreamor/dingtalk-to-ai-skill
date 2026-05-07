@@ -1,6 +1,6 @@
 /**
  * 应用入口
- * 
+ *
  * 核心功能：
  * 1. 初始化各模块（会话管理、消息队列、流量控制等）
  * 2. 启动 Gateway HTTP 服务
@@ -15,12 +15,12 @@ import { SessionManager } from './session-manager';
 import { MessageQueue, RateLimiter, ConcurrencyController } from './message-queue';
 import { MessageDeduplicator } from './utils/dedupCache';
 import { OpenCodeExecutor } from './opencode';
-import { 
-  notifyServiceStart, 
-  notifyServiceStop, 
+import {
+  notifyServiceStart,
+  notifyServiceStop,
   notifyError,
   isAlertEnabled,
-  setStreamService 
+  setStreamService,
 } from './utils/alert';
 import { enableGlobalSanitize } from './utils/logger';
 import { Scheduler } from './scheduler';
@@ -116,26 +116,33 @@ async function main(): Promise<void> {
       boostIncrement: config.memory.boostIncrement,
     });
     globalMemoryManager = memoryManager;
-    console.log(`✅ 项目记忆模块已启动 (自动摘要: ${config.memory.autoSummarizeEnabled ? '启用' : '禁用'})`);
+    console.log(
+      `✅ 项目记忆模块已启动 (自动摘要: ${config.memory.autoSummarizeEnabled ? '启用' : '禁用'})`
+    );
   }
 
   // 创建 Gateway 服务
-  const gateway = new GatewayServer(
-    dingtalkService,
-    {
-      sessionManager,
-      messageQueue,
-      rateLimiter,
-      concurrencyController,
-      deduplicator,
-      openCodeExecutor,
-      memoryManager: memoryManager ?? undefined,
-    }
-  );
+  const gateway = new GatewayServer(dingtalkService, {
+    sessionManager,
+    messageQueue,
+    rateLimiter,
+    concurrencyController,
+    deduplicator,
+    openCodeExecutor,
+    memoryManager: memoryManager ?? undefined,
+  });
   globalGateway = gateway;
 
   // 将调度器绑定到 Gateway
   gateway.setScheduler(scheduler);
+
+  // 初始化并设置 StreamingCardManager
+  if (config.streaming.enabled) {
+    const { StreamingCardManager } = await import('./dingtalk/streamingCard');
+    const streamingCardManager = new StreamingCardManager();
+    gateway.setStreamingCardManager(streamingCardManager);
+    console.log('✅ 流式卡片管理器已初始化');
+  }
 
   // 初始化路由器
   if (config.router.enabled) {
@@ -160,28 +167,31 @@ async function main(): Promise<void> {
     }
 
     gateway.setRouter(messageRouter, providerRegistry);
-    console.log(`✅ 路由器已启动 (${providerRegistry.size()} 个 Provider, ${messageRouter.listRules().length} 条规则)`);
+    console.log(
+      `✅ 路由器已启动 (${providerRegistry.size()} 个 Provider, ${messageRouter.listRules().length} 条规则)`
+    );
   }
 
   // 启动 Gateway
   try {
     await gateway.start(config.gateway.port);
     console.log(`✅ Gateway 服务已启动，监听端口：${config.gateway.port}`);
-      console.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
-      console.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
-      console.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
-    
-      // 通知 PM2 服务已就绪
-      if (process.send) {
-        process.send('ready');
-      }  } catch (error) {
+    console.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
+    console.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
+    console.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
+
+    // 通知 PM2 服务已就绪
+    if (process.send) {
+      process.send('ready');
+    }
+  } catch (error) {
     console.error('❌ 启动 Gateway 失败:', error);
     process.exit(1);
   }
 
   // 启动 Stream 模式（唯一模式）
   console.log('\n🌊 启动 Stream 模式（钉钉官方推荐，无需内网穿透）...');
-  
+
   const streamService = new DingtalkStreamService();
   globalStreamService = streamService;
 
@@ -195,54 +205,63 @@ async function main(): Promise<void> {
   }
 
   // 设置消息处理器
-  streamService.setMessageHandler(async (userId, userName, content, conversationId, sessionWebhook) => {
-    const startTime = Date.now();
-    console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
-    console.log(`[Stream] conversationId: ${conversationId}`);
-    console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
-    
-    try {
-      // 使用超时包装消息处理，防止长时间阻塞
-      const processingTimeout = config.ai.timeout + 10000; // AI 超时 + 10秒缓冲
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)), processingTimeout);
-      });
-      
-      // 所有消息直接交给 AI 处理
-      const result = await Promise.race([
-        gateway.processMessage({
-          msg: content,
-          userId,
-          userName,
-        }),
-        timeoutPromise
-      ]);
-      
-      const processingTime = Date.now() - startTime;
-      console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
-      
-      // 使用 sessionWebhook 发送回复
-      const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
-      if (result.success && result.data?.result) {
-        await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
-        console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
-      } else if (!result.success) {
-        const errorMessage = `❌ ${result.message}`;
-        await streamService.sendTextMessage(conversationId, errorMessage);
-        console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
-      }
-    } catch (error) {
-      const processingTime = Date.now() - startTime;
-      console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
-      const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
-      
+  streamService.setMessageHandler(
+    async (userId, userName, content, conversationId, sessionWebhook, conversationType) => {
+      const startTime = Date.now();
+      console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
+      console.log(`[Stream] conversationId: ${conversationId}`);
+      console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
+      console.log(`[Stream] conversationType: ${conversationType || 'group'}`);
+
       try {
-        await streamService.sendTextMessage(conversationId, errorMessage);
-      } catch (sendError) {
-        console.error('[Stream] 发送错误消息失败:', sendError);
+        // 使用超时包装消息处理，防止长时间阻塞
+        const processingTimeout = config.ai.timeout + 10000; // AI 超时 + 10秒缓冲
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(
+            () => reject(new Error(`消息处理超时 (${processingTimeout / 1000}秒)`)),
+            processingTimeout
+          );
+        });
+
+        // 所有消息直接交给 AI 处理
+        const result = await Promise.race([
+          gateway.processMessage({
+            msg: content,
+            userId,
+            userName,
+            conversationId,
+            sessionWebhook,
+            conversationType,
+          }),
+          timeoutPromise,
+        ]);
+
+        const processingTime = Date.now() - startTime;
+        console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
+
+        // 使用 sessionWebhook 发送回复
+        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
+        if (result.success && result.data?.result) {
+          await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
+          console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
+        } else if (!result.success) {
+          const errorMessage = `❌ ${result.message}`;
+          await streamService.sendTextMessage(conversationId, errorMessage);
+          console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
+        }
+      } catch (error) {
+        const processingTime = Date.now() - startTime;
+        console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
+        const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
+
+        try {
+          await streamService.sendTextMessage(conversationId, errorMessage);
+        } catch (sendError) {
+          console.error('[Stream] 发送错误消息失败:', sendError);
+        }
       }
     }
-  });
+  );
 
   // 启动 Stream 服务（内置重连机制）
   try {
@@ -251,10 +270,10 @@ async function main(): Promise<void> {
     console.log('   - 无需内网穿透，钉钉会主动推送消息');
     console.log(`   - 自动重连: 已启用 (最多 ${config.stream.maxReconnectAttempts} 次)`);
     console.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
-    
+
     // 绑定 Stream 服务到告警模块
     setStreamService(streamService);
-    
+
     // 发送服务启动通知
     if (isAlertEnabled()) {
       notifyServiceStart().catch(err => console.error('[Alert] 发送启动通知失败:', err));
@@ -340,7 +359,7 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ 未处理的 Promise 拒绝:');
   console.error('   原因:', reason);
   console.error('   Promise:', promise);
-  
+
   // 发送告警
   if (isAlertEnabled()) {
     const reasonStr = reason instanceof Error ? reason.message : String(reason);
@@ -349,16 +368,16 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // 捕获未捕获的异常
-process.on('uncaughtException', async (error) => {
+process.on('uncaughtException', async error => {
   console.error('❌ 未捕获的异常:');
   console.error('   错误:', error.message);
   console.error('   堆栈:', error.stack);
-  
+
   // 发送告警
   if (isAlertEnabled()) {
     await notifyError('未捕获的异常', error.message, error.stack).catch(() => {});
   }
-  
+
   // 严重错误，清理后退出
   try {
     await cleanupResources();
@@ -368,7 +387,7 @@ process.on('uncaughtException', async (error) => {
   process.exit(1);
 });
 
-main().catch((error) => {
+main().catch(error => {
   console.error('❌ 启动过程中发生错误:', error);
   process.exit(1);
 });

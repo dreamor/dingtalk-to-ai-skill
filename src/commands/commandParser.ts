@@ -35,6 +35,7 @@ export const COMMANDS = {
   help: { description: '显示所有可用命令' },
   status: { description: '显示系统状态' },
   model: { description: '查看/切换 AI 模型' },
+  mode: { description: '查看/切换权限模式 (default/plan/auto-edit/full-auto)' },
   history: { description: '显示最近对话历史' },
   queue: { description: '显示消息队列状态' },
   config: { description: '显示当前配置（脱敏）' },
