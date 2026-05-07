@@ -2,11 +2,19 @@
  * Claude Code CLI 执行器
  * 负责调用 Claude Code CLI 处理各种任务
  * 通过 claude CLI 的 -p (prompt) 选项传递消息
+ *
+ * 注意：Claude CLI 需要 TTY 才能正常工作，因此使用 node-pty 创建伪终端
  */
 import { spawn, ChildProcess } from 'child_process';
+import * as pty from 'node-pty';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { config } from '../config';
 import { withRetry } from '../utils/retry';
 import type { MessageContext } from '../types/message';
+import { SessionPool, type SessionPoolConfig } from './sessionPool';
+import type { SessionCallbacks, SessionResult } from './session';
 
 export interface ClaudeCodeResult {
   success: boolean;
@@ -42,6 +50,7 @@ export class InputValidationError extends Error {
  */
 export class ClaudeCodeExecutor {
   private config: ClaudeCodeConfig;
+  private sessionPool: SessionPool | null = null;
 
   constructor(options?: Partial<ClaudeCodeConfig>) {
     this.config = {
@@ -53,6 +62,39 @@ export class ClaudeCodeExecutor {
       maxInputLength: config.claude.maxInputLength,
       ...options,
     };
+  }
+
+  private static cachedClaudeEnv: Record<string, string> | null = null;
+
+  /**
+   * 读取 ~/.claude/settings.json 中的环境变量
+   * Claude CLI 通过 settings.json 配置 API 密钥和端点，
+   * 但 node-pty 不会自动加载这些变量，需要显式注入
+   */
+  private getClaudeEnv(): Record<string, string> {
+    if (ClaudeCodeExecutor.cachedClaudeEnv) {
+      return ClaudeCodeExecutor.cachedClaudeEnv;
+    }
+    try {
+      const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+      const content = fs.readFileSync(settingsPath, 'utf-8');
+      const settings = JSON.parse(content);
+      const rawEnv =
+        settings.env && typeof settings.env === 'object'
+          ? (settings.env as Record<string, string>)
+          : {};
+      // 映射 ANTHROPIC_AUTH_TOKEN → ANTHROPIC_API_KEY（Claude CLI 使用后者）
+      const env: Record<string, string> = { ...rawEnv };
+      if (rawEnv.ANTHROPIC_AUTH_TOKEN && !rawEnv.ANTHROPIC_API_KEY) {
+        env.ANTHROPIC_API_KEY = rawEnv.ANTHROPIC_AUTH_TOKEN;
+      }
+      ClaudeCodeExecutor.cachedClaudeEnv = env;
+      console.log(`[Claude Code] 已加载 ${Object.keys(env).length} 个环境变量 from settings.json`);
+      return env;
+    } catch {
+      ClaudeCodeExecutor.cachedClaudeEnv = {};
+      return {};
+    }
   }
 
   /**
@@ -74,11 +116,11 @@ export class ClaudeCodeExecutor {
       // 验证输入长度
       this.validateInput(fullPrompt);
 
-      // 构建命令参数（prompt 通过 stdin 传递）
-      const args = this.buildCommandArgs();
+      // 构建命令参数（prompt 作为参数传递）
+      const args = this.buildCommandArgs(fullPrompt);
 
       // 使用重试机制处理临时性故障
-      const result = await withRetry(() => this.runCommand(args, fullPrompt), {
+      const result = await withRetry(() => this.runCommand(args), {
         maxRetries: this.config.maxRetries,
         baseDelay: this.config.retryBaseDelay || 1000,
         maxDelay: this.config.retryMaxDelay || 10000,
@@ -238,54 +280,56 @@ export class ClaudeCodeExecutor {
 
   /**
    * 构建命令参数
-   * Claude Code CLI 调用方式: claude -p
-   * prompt 通过 stdin 传递
+   * Claude Code CLI 调用方式: claude -p "prompt"
+   * prompt 作为参数传递（不是 stdin），因为 node-pty 更适合这种方式
+   *
+   * --bare: 跳过 hooks、插件同步、LSP、auto-memory 等启动开销，
+   *         将冷启动时间从 30-60s 降至 5-10s
+   * --model: 指定模型，覆盖 settings.json 中的默认值
    */
-  private buildCommandArgs(): string[] {
-    return ['-p', '--dangerously-skip-permissions'];
+  private buildCommandArgs(prompt: string): string[] {
+    const args = ['-p', '--output-format=text', '--bare', '--dangerously-skip-permissions'];
+
+    if (this.config.model) {
+      args.push('--model', this.config.model);
+    }
+
+    args.push(prompt);
+    return args;
   }
 
   /**
-   * 执行命令
+   * 执行命令（使用 node-pty 创建伪终端）
+   * Claude CLI 需要 TTY 才能正常工作
    */
-  private runCommand(args: string[], stdinInput: string): Promise<ClaudeCodeResult> {
+  private runCommand(args: string[]): Promise<ClaudeCodeResult> {
     return new Promise(resolve => {
-      let stdout = '';
-      let stderr = '';
-      let processInstance: ChildProcess | null = null;
+      let output = '';
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      console.log(`[Claude Code] 执行命令: ${this.config.command} ${args.join(' ')} <stdin>`);
+      console.log(`[Claude Code] 执行命令: ${this.config.command} ${args.join(' ')}`);
 
-      // 启动 Claude Code CLI 进程，继承当前进程环境变量
-      processInstance = spawn(this.config.command, args, {
-        cwd: this.config.workingDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
+      // 使用 node-pty 创建伪终端，Claude CLI 需要 TTY
+      const ptyProcess = pty.spawn(this.config.command, args, {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 30,
+        cwd: this.config.workingDir || process.cwd(),
         env: {
           ...process.env,
+          ...this.getClaudeEnv(),
           LANG: 'zh_CN.UTF-8',
         },
       });
 
-      // 通过 stdin 写入 prompt
-      if (processInstance.stdin) {
-        processInstance.stdin.write(stdinInput);
-        processInstance.stdin.end();
-      }
-
-      // 捕获标准输出
-      processInstance.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      // 捕获错误输出
-      processInstance.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
+      // 捕获输出
+      ptyProcess.onData((data: string) => {
+        output += data;
       });
 
       // 进程结束
-      processInstance.on('close', code => {
+      ptyProcess.onExit(({ exitCode, signal }) => {
         if (resolved) return;
         resolved = true;
 
@@ -295,73 +339,31 @@ export class ClaudeCodeExecutor {
           timeoutId = null;
         }
 
-        console.log(`[Claude Code] 进程结束，退出码: ${code}`);
-        console.log(`[Claude Code] stdout: ${stdout.substring(0, 500)}`);
-        console.log(`[Claude Code] stderr: ${stderr.substring(0, 500)}`);
+        console.log(`[Claude Code] 进程结束，退出码: ${exitCode}, 信号: ${signal}`);
+        console.log(`[Claude Code] 原始输出: ${output.substring(0, 500)}`);
 
-        // 先过滤输出中的警告
-        const filteredOutput = this.filterWarnings(stdout.trim());
-        const filteredError = stderr.trim() ? this.filterWarnings(stderr.trim()) : '';
+        // 过滤输出中的警告和控制字符
+        const filteredOutput = this.filterWarnings(this.stripAnsiCodes(output.trim()));
 
         resolve({
-          success: code === 0,
+          success: exitCode === 0,
           output: filteredOutput,
-          error: filteredError || undefined,
-          exitCode: code || 0,
+          error: undefined,
+          exitCode: exitCode || 0,
           executionTime: 0,
         });
       });
 
-      // 错误处理
-      processInstance.on('error', error => {
-        if (resolved) return;
-        resolved = true;
-
-        // 清理超时定时器
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-
-        console.error('[Claude Code] 进程错误:', error);
-
-        // 如果是命令未找到
-        if ('code' in error && error.code === 'ENOENT') {
-          resolve({
-            success: false,
-            output: '',
-            error: `Claude Code CLI 未安装或找不到命令: ${this.config.command}`,
-            exitCode: -1,
-            executionTime: 0,
-          });
-        } else {
-          resolve({
-            success: false,
-            output: '',
-            error: error.message,
-            exitCode: -1,
-            executionTime: 0,
-          });
-        }
-      });
-
       // 超时处理
       timeoutId = setTimeout(() => {
-        if (processInstance && !processInstance.killed && !resolved) {
+        if (!resolved) {
           console.log(`[Claude Code] 执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
           resolved = true;
-          processInstance.kill('SIGTERM');
-
-          // 如果 SIGTERM 不生效，强制杀死
-          setTimeout(() => {
-            if (processInstance && !processInstance.killed) {
-              processInstance.kill('SIGKILL');
-            }
-          }, 5000);
+          ptyProcess.kill();
 
           resolve({
             success: false,
-            output: stdout.trim(),
+            output: this.stripAnsiCodes(output.trim()),
             error: `命令执行超时 (${this.config.timeout / 1000}秒)`,
             exitCode: -1,
             executionTime: this.config.timeout,
@@ -372,11 +374,28 @@ export class ClaudeCodeExecutor {
   }
 
   /**
+   * 移除 ANSI 转义码
+   */
+  private stripAnsiCodes(str: string): string {
+    // 移除 CSI 序列：\x1b[ (可选 ?/>/< 参数) 数字/分号 字母
+    let result = str.replace(/\x1b\[[?<>]?[0-9;]*[a-zA-Z]/g, '');
+    // 移除 OSC 序列：\x1b] ... \x07 (BEL) 或 \x1b\\ (ST)
+    result = result.replace(/\x1b\][^\x07]*\x07/g, '');
+    result = result.replace(/\x1b\][^\x1b]*\x1b\\/g, '');
+    // 移除其他控制序列：\x1b 后跟单个字符（如 \x1b7 保存光标, \x1b8 恢复光标）
+    result = result.replace(/\x1b[0-9:;<=>?]/g, '');
+    result = result.replace(/\x1b[()][B0UK]/g, '');
+    // 清理回车符（保留换行）
+    result = result.replace(/\r\n/g, '\n').replace(/\r/g, '');
+    return result;
+  }
+
+  /**
    * 流式执行（实时输出）
    */
   async executeStream(
     prompt: string,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string) => void | Promise<void>,
     context?: MessageContext
   ): Promise<ClaudeCodeResult> {
     const startTime = Date.now();
@@ -387,8 +406,8 @@ export class ClaudeCodeExecutor {
       const fullPrompt = this.buildPromptWithContext(prompt, context);
       this.validateInput(fullPrompt);
 
-      const args = this.buildCommandArgs();
-      return await this.runCommandStream(args, fullPrompt, onChunk, startTime);
+      const args = this.buildCommandArgs(fullPrompt);
+      return await this.runCommandStream(args, onChunk, startTime);
     } catch (error) {
       if (error instanceof InputValidationError) {
         return {
@@ -411,53 +430,39 @@ export class ClaudeCodeExecutor {
   }
 
   /**
-   * 流式执行命令
+   * 流式执行命令（使用 node-pty）
    */
-  private runCommandStream(
+  private async runCommandStream(
     args: string[],
-    stdinInput: string,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string) => void | Promise<void>,
     startTime: number
   ): Promise<ClaudeCodeResult> {
     return new Promise(resolve => {
-      let stdout = '';
-      let stderr = '';
-      let processInstance: ChildProcess | null = null;
+      let output = '';
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      // 启动 Claude Code CLI 进程
-      processInstance = spawn(this.config.command, args, {
-        cwd: this.config.workingDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
+      // 使用 node-pty 创建伪终端
+      const ptyProcess = pty.spawn(this.config.command, args, {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 30,
+        cwd: this.config.workingDir || process.cwd(),
         env: {
           ...process.env,
+          ...this.getClaudeEnv(),
           LANG: 'zh_CN.UTF-8',
         },
       });
 
-      // 通过 stdin 写入 prompt
-      if (processInstance.stdin) {
-        processInstance.stdin.write(stdinInput);
-        processInstance.stdin.end();
-      }
-
       // 流式输出
-      processInstance.stdout?.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stdout += chunk;
-        onChunk(chunk);
+      ptyProcess.onData(async (data: string) => {
+        output += data;
+        // 清理 ANSI 控制码后回调，避免下游收到乱码
+        await onChunk(this.stripAnsiCodes(data));
       });
 
-      processInstance.stderr?.on('data', (data: Buffer) => {
-        const chunk = data.toString();
-        stderr += chunk;
-        if (!chunk.includes('warning') && !chunk.includes('Warning')) {
-          onChunk(chunk);
-        }
-      });
-
-      processInstance.on('close', code => {
+      ptyProcess.onExit(({ exitCode }) => {
         if (resolved) return;
         resolved = true;
 
@@ -466,44 +471,26 @@ export class ClaudeCodeExecutor {
           timeoutId = null;
         }
 
-        const parsedOutput = this.parseOutput(stdout.trim());
+        const parsedOutput = this.parseOutput(this.stripAnsiCodes(output.trim()));
 
         resolve({
-          success: code === 0,
+          success: exitCode === 0,
           output: parsedOutput,
-          error: stderr.trim() || undefined,
-          exitCode: code || 0,
-          executionTime: Date.now() - startTime,
-        });
-      });
-
-      processInstance.on('error', error => {
-        if (resolved) return;
-        resolved = true;
-
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-
-        resolve({
-          success: false,
-          output: '',
-          error: error.message,
-          exitCode: -1,
+          error: undefined,
+          exitCode: exitCode || 0,
           executionTime: Date.now() - startTime,
         });
       });
 
       // 超时处理
       timeoutId = setTimeout(() => {
-        if (processInstance && !processInstance.killed && !resolved) {
+        if (!resolved) {
           resolved = true;
-          processInstance.kill('SIGTERM');
+          ptyProcess.kill();
 
           resolve({
             success: false,
-            output: stdout.trim(),
+            output: this.stripAnsiCodes(output.trim()),
             error: `命令执行超时 (${this.config.timeout / 1000}秒)`,
             exitCode: -1,
             executionTime: this.config.timeout,
@@ -518,22 +505,35 @@ export class ClaudeCodeExecutor {
    */
   async isAvailable(): Promise<boolean> {
     return new Promise(resolve => {
-      const proc = spawn(this.config.command, ['--version'], {
-        stdio: 'ignore',
+      // 使用 pty 创建伪终端检查版本
+      const ptyProcess = pty.spawn(this.config.command, ['--version'], {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 30,
+        cwd: this.config.workingDir || process.cwd(),
+        env: { ...process.env, ...this.getClaudeEnv() },
       });
 
-      proc.on('close', code => {
-        resolve(code === 0);
+      let output = '';
+      let resolved = false;
+
+      ptyProcess.onData((data: string) => {
+        output += data;
       });
 
-      proc.on('error', () => {
-        resolve(false);
+      ptyProcess.onExit(({ exitCode }) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(exitCode === 0 && output.includes('Claude Code'));
       });
 
       // 快速超时
       setTimeout(() => {
-        proc.kill();
-        resolve(false);
+        if (!resolved) {
+          resolved = true;
+          ptyProcess.kill();
+          resolve(false);
+        }
       }, 5000);
     });
   }
@@ -543,6 +543,120 @@ export class ClaudeCodeExecutor {
    */
   getConfig(): ClaudeCodeConfig {
     return { ...this.config };
+  }
+
+  // ==================== 持久化会话模式 ====================
+
+  /**
+   * 初始化会话池（启用持久化会话模式）
+   *
+   * 启用后，executeSession() 将复用已有的 Claude CLI 进程，
+   * 避免每次消息都冷启动（消除约 85 秒延迟）。
+   */
+  initSessionPool(poolConfig?: SessionPoolConfig): void {
+    if (this.sessionPool) {
+      console.log('[ClaudeCode] 会话池已初始化，跳过');
+      return;
+    }
+
+    this.sessionPool = new SessionPool(
+      {
+        command: this.config.command,
+        workingDir: this.config.workingDir,
+        model: this.config.model,
+        permissionMode: 'dangerously-skip-permissions',
+      },
+      poolConfig
+    );
+
+    this.sessionPool.startCleanup();
+    console.log('[ClaudeCode] 会话池已初始化');
+  }
+
+  /**
+   * 使用持久化会话执行消息
+   *
+   * 通过 SessionPool 复用已有 Claude CLI 进程，
+   * 首次消息仍需等待进程启动，后续消息直接发送，无需冷启动。
+   * 如果会话池未初始化，自动降级到 executeStream()。
+   */
+  async executeSession(
+    conversationId: string,
+    prompt: string,
+    onChunk?: (chunk: string) => void,
+    context?: MessageContext
+  ): Promise<ClaudeCodeResult> {
+    const startTime = Date.now();
+
+    // 降级：会话池未初始化时使用 executeStream
+    if (!this.sessionPool) {
+      console.log('[ClaudeCode] 会话池未初始化，降级到 executeStream');
+      if (onChunk) {
+        return this.executeStream(prompt, onChunk, context);
+      }
+      return this.execute(prompt, context);
+    }
+
+    console.log(`🚀 持久化会话执行: ${conversationId} - ${prompt.substring(0, 50)}...`);
+
+    try {
+      const fullPrompt = this.buildPromptWithContext(prompt, context);
+      this.validateInput(fullPrompt);
+
+      const callbacks: SessionCallbacks = {};
+      if (onChunk) {
+        callbacks.onText = onChunk;
+      }
+
+      const result: SessionResult = await this.sessionPool.send(
+        conversationId,
+        fullPrompt,
+        callbacks
+      );
+
+      // 过滤输出中的警告
+      const filteredOutput = this.filterWarnings(result.output);
+
+      return {
+        success: result.success,
+        output: filteredOutput,
+        error: result.error,
+        executionTime: result.executionTime || Date.now() - startTime,
+        exitCode: result.success ? 0 : -1,
+      };
+    } catch (error) {
+      console.error('[ClaudeCode] 持久化会话执行失败:', error);
+
+      // 降级到 executeStream
+      console.log('[ClaudeCode] 降级到 executeStream');
+      if (onChunk) {
+        return this.executeStream(prompt, onChunk, context);
+      }
+      return this.execute(prompt, context);
+    }
+  }
+
+  /**
+   * 获取会话池状态（诊断用）
+   */
+  getSessionPoolStatus(): Array<{
+    conversationId: string;
+    state: string;
+    sessionId: string;
+    lastActivity: number;
+    createdAt: number;
+  }> {
+    return this.sessionPool?.getStatus() ?? [];
+  }
+
+  /**
+   * 关闭会话池中所有会话
+   */
+  async closeSessionPool(): Promise<void> {
+    if (this.sessionPool) {
+      await this.sessionPool.closeAll();
+      console.log('[ClaudeCode] 会话池已关闭');
+    }
   }
 }
 
