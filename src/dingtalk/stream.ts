@@ -10,7 +10,12 @@
 import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
-import { updateAdminSessionWebhook, getAdminConversationId, notifyError, isAlertEnabled } from '../utils/alert';
+import {
+  updateAdminSessionWebhook,
+  getAdminConversationId,
+  notifyError,
+  isAlertEnabled,
+} from '../utils/alert';
 import { parseCommand } from '../commands/commandParser';
 import type { CommandHandler, CommandDeps } from '../commands/commandHandler';
 import type { MediaProcessor } from '../media/mediaProcessor';
@@ -21,7 +26,8 @@ export interface MessageHandler {
     userName: string,
     content: string,
     conversationId: string,
-    sessionWebhook: string
+    sessionWebhook: string,
+    conversationType?: 'group' | 'user'
   ): Promise<void>;
 }
 
@@ -49,7 +55,7 @@ export class DingtalkStreamService {
   private heartbeatMonitorTimer: NodeJS.Timeout | null = null;
   private readonly messageTTL: number = 30 * 60 * 1000;
   private readonly heartbeatTimeout: number = 120 * 1000;
-  
+
   // 重连相关
   private reconnectAttempts: number = 0;
   private maxReconnectAttempts: number = 10;
@@ -65,7 +71,9 @@ export class DingtalkStreamService {
     console.log('  - Key fix: Immediate ACK mechanism');
     console.log('  - Heartbeat timeout: 120s');
     console.log(`  - Auto-reconnect: enabled (max ${this.maxReconnectAttempts} attempts)`);
-    console.log(`  - Reconnect delay: ${config.stream.reconnectBaseDelay || 1000}ms - ${config.stream.reconnectMaxDelay || 60000}ms`);
+    console.log(
+      `  - Reconnect delay: ${config.stream.reconnectBaseDelay || 1000}ms - ${config.stream.reconnectMaxDelay || 60000}ms`
+    );
 
     this.cleanupTimer = setInterval(
       () => {
@@ -94,7 +102,7 @@ export class DingtalkStreamService {
     // 重置重连状态
     this.isManualDisconnect = false;
     this.reconnectAttempts = 0;
-    
+
     const { appKey, appSecret } = config.dingtalk;
 
     if (!appKey || !appSecret) {
@@ -132,7 +140,7 @@ export class DingtalkStreamService {
         ? Math.round((Date.now() - this.connectionStartTime) / 1000)
         : 0;
       console.log(`[Stream] ⚠️ Connection closed (duration: ${duration}s)`);
-      
+
       // 如果不是手动断开，尝试重新连接
       if (!this.isManualDisconnect) {
         this.handleDisconnect();
@@ -142,7 +150,7 @@ export class DingtalkStreamService {
     this.client.on('error', (error: Error) => {
       this.isConnected = false;
       console.error('[Stream] ❌ Connection error:', error.message);
-      
+
       // 如果不是手动断开，尝试重新连接
       if (!this.isManualDisconnect) {
         this.handleDisconnect();
@@ -211,37 +219,41 @@ export class DingtalkStreamService {
     if (this.isManualDisconnect) {
       return;
     }
-    
+
     this.reconnectAttempts++;
-    
+
     if (this.reconnectAttempts > this.maxReconnectAttempts) {
       console.error(`[Stream] ❌ 重连次数超过限制 (${this.maxReconnectAttempts}次)，停止重连`);
       console.error('[Stream] 请检查网络连接或钉钉配置，然后手动重启服务');
-      
+
       // 发送告警
       if (isAlertEnabled()) {
-        notifyError('钉钉 Stream 连接失败', `已重连 ${this.reconnectAttempts} 次，均失败`).catch(() => {});
+        notifyError('钉钉 Stream 连接失败', `已重连 ${this.reconnectAttempts} 次，均失败`).catch(
+          () => {}
+        );
       }
       return;
     }
-    
+
     // 计算指数退避延迟
     const baseDelay = config.stream.reconnectBaseDelay || 1000;
     const maxDelay = config.stream.reconnectMaxDelay || 60000;
     const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), maxDelay);
-    
+
     console.log(`[Stream] 🔄 准备重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
     console.log(`[Stream] ⏳ 等待 ${delay / 1000} 秒后重试...`);
-    
+
     // 清除之前的重连定时器
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
     }
-    
+
     // 设置重连定时器
     this.reconnectTimer = setTimeout(async () => {
-      console.log(`[Stream] 🔄 执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-      
+      console.log(
+        `[Stream] 🔄 执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
+      );
+
       try {
         await this.start();
         console.log(`[Stream] ✅ 重连成功！`);
@@ -254,10 +266,10 @@ export class DingtalkStreamService {
 
   async stop(): Promise<void> {
     console.log('[Stream] Stopping service...');
-    
+
     // 标记为手动断开，不进行重连
     this.isManualDisconnect = true;
-    
+
     // 清除重连定时器
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -334,9 +346,20 @@ export class DingtalkStreamService {
         hasSessionWebhook: !!data.sessionWebhook,
       });
 
-      const { senderId, senderNick, text, msgtype, conversationId, sessionWebhook, content } = data;
+      const {
+        senderId,
+        senderNick,
+        text,
+        msgtype,
+        conversationId,
+        sessionWebhook,
+        content,
+        chatType,
+      } = data;
 
       const userId = senderId || 'unknown';
+      // chatType: "group" = 群聊，"person" = 单聊
+      const conversationType: 'group' | 'user' = chatType === 'group' ? 'group' : 'user';
       const userName = senderNick || 'Unknown';
 
       // Extract message content (support multiple types)
@@ -436,14 +459,18 @@ export class DingtalkStreamService {
         if (parsedCommand && this.commandHandler) {
           console.log(`[Stream] [${messageId}] Command detected: /${parsedCommand.command}`);
           try {
-            const response = await this.commandHandler.handle(parsedCommand, userId, conversationId || '');
+            const response = await this.commandHandler.handle(
+              parsedCommand,
+              userId,
+              conversationId || ''
+            );
             if (sessionWebhook) {
-              await this.sendMarkdownMessage(conversationId!, '命令结果', response);
+              await this.sendMarkdownMessage(conversationId, '命令结果', response);
             }
           } catch (error) {
             console.error(`[Stream] [${messageId}] Command handling failed:`, error);
             if (sessionWebhook) {
-              await this.sendTextMessage(conversationId!, '❌ 命令处理失败，请稍后重试');
+              await this.sendTextMessage(conversationId, '❌ 命令处理失败，请稍后重试');
             }
           }
           return; // 命令处理完毕，不进入 AI 流程
@@ -454,7 +481,14 @@ export class DingtalkStreamService {
 
           // Async processing without blocking
           // 使用 void 明确表明我们不等待这个 Promise
-          void this.messageHandler(userId, userName, messageContent, conversationId, sessionWebhook)
+          void this.messageHandler(
+            userId,
+            userName,
+            messageContent,
+            conversationId,
+            sessionWebhook,
+            conversationType
+          )
             .then(() => {
               // 只在 debug 模式下输出完成日志，避免测试污染
               if (process.env.NODE_ENV !== 'test') {
@@ -685,7 +719,10 @@ export class DingtalkStreamService {
   /**
    * 发送互动卡片消息
    */
-  async sendCardMessage(conversationId: string, cardData: Record<string, unknown>): Promise<boolean> {
+  async sendCardMessage(
+    conversationId: string,
+    cardData: Record<string, unknown>
+  ): Promise<boolean> {
     try {
       if (!this.client) {
         throw new Error('Stream client not connected');
@@ -723,5 +760,4 @@ export class DingtalkStreamService {
       return false;
     }
   }
-
-  }
+}

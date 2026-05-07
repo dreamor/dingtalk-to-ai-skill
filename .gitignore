@@ -18,6 +18,9 @@ logs/
 .env
 .env.local
 
+# Claude Code (local config, worktrees, sessions)
+.claude/
+
 # IDE
 .idea/
 .vscode/
@@ -28,6 +31,14 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Planning docs (session-local progress tracking)
+task_plan.md
+findings.md
+progress.md
+CLAUDE.md
+docs/cc-connect-learnings.md
+docs/streaming-card-plan.md
 
 # Docs (生成文档)
 docs/superpowers/

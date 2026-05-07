@@ -1,0 +1,462 @@
+/**
+ * 钉钉 AI Card 服务 - 封装流式卡片 API
+ *
+ * 基于 createAndDeliver 统一接口创建并投放卡片
+ * 核心流程：
+ * 1. createCard() - 创建并投放 AI Card（createAndDeliver 一步完成）
+ * 2. streamUpdate() - 流式更新卡片内容
+ * 3. finish() - 完成卡片，标记为 finished
+ */
+import axios, { AxiosError } from 'axios';
+import { config } from '../config';
+import type { DingtalkConfig } from '../config';
+
+/** AI Card 实例 */
+export interface AICardInstance {
+  /** 卡片唯一标识 */
+  cardInstanceId: string;
+  /** Access Token */
+  accessToken: string;
+  /** Token 过期时间 */
+  tokenExpireTime: number;
+  /** INPUTING 状态是否已启动 */
+  inputingStarted: boolean;
+  /** 会话 ID */
+  conversationId: string;
+  /** 发送者类型 */
+  senderType: 'user' | 'group';
+  /** 用户 ID */
+  userId: string;
+}
+
+/** 卡片投放目标 */
+interface CardTarget {
+  type: 'user' | 'group';
+  userId: string;
+  openConversationId: string;
+}
+
+/** 默认 AI 卡片模板 ID（钉钉官方流式卡片模板 - 打字机效果） */
+const DEFAULT_CARD_TEMPLATE_ID = '82632605-8031-4963-8a92-d25e2ca8aad7.schema';
+
+/** 卡片状态 */
+const AICardStatus = {
+  PROCESSING: '1',
+  INPUTING: '2',
+  FINISHED: '3',
+  EXECUTING: '4',
+  FAILED: '5',
+} as const;
+
+/**
+ * 钉钉 API 基础 URL
+ */
+const DINGTALK_API = 'https://api.dingtalk.com';
+
+/**
+ * 获取 Access Token
+ */
+async function getAccessToken(): Promise<string> {
+  const { appKey, appSecret } = config.dingtalk;
+
+  if (!appKey || !appSecret) {
+    throw new Error('缺少钉钉配置：appKey 或 appSecret');
+  }
+
+  const response = await axios.get(`${DINGTALK_API}/gettoken`, {
+    params: {
+      appkey: appKey,
+      appsecret: appSecret,
+    },
+  });
+
+  if (response.data.errcode !== 0) {
+    throw new Error(`获取 access_token 失败：${response.data.errmsg}`);
+  }
+
+  return response.data.access_token;
+}
+
+/**
+ * 确保 Token 有效（自动刷新过期的 Token）
+ */
+async function ensureValidToken(card: AICardInstance): Promise<string> {
+  // 提前 5 分钟刷新
+  if (Date.now() > card.tokenExpireTime - 300 * 1000) {
+    card.accessToken = await getAccessToken();
+    card.tokenExpireTime = Date.now() + 7200 * 1000;
+  }
+  return card.accessToken;
+}
+
+/**
+ * 判断是否为 QPS 限流错误
+ */
+function isQpsLimitError(err: unknown): boolean {
+  const axiosError = err as AxiosError<{ code?: string }>;
+  const errorCode = axiosError?.response?.data?.code;
+  return (
+    axiosError?.response?.status === 403 &&
+    typeof errorCode === 'string' &&
+    errorCode.includes('QpsLimit')
+  );
+}
+
+/**
+ * 简单的 sleep 函数
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 确保 Markdown 表格前有空行，否则钉钉无法正确渲染
+ */
+function ensureTableBlankLines(text: string): string {
+  const lines = text.split('\n');
+  const result: string[] = [];
+  const tableDividerRegex = /^\s*\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?\s*$/;
+  const tableRowRegex = /^\s*\|?.*\|.*\|?\s*$/;
+
+  const isDivider = (line: string) =>
+    line && typeof line === 'string' && line.includes('|') && tableDividerRegex.test(line);
+
+  for (let i = 0; i < lines.length; i++) {
+    const currentLine = lines[i];
+    const nextLine = lines[i + 1] ?? '';
+
+    if (
+      tableRowRegex.test(currentLine) &&
+      isDivider(nextLine) &&
+      i > 0 &&
+      lines[i - 1].trim() !== '' &&
+      !tableRowRegex.test(lines[i - 1])
+    ) {
+      result.push('');
+    }
+    result.push(currentLine);
+  }
+
+  return result.join('\n');
+}
+
+/**
+ * 构建 createAndDeliver 请求体
+ */
+function buildCreateAndDeliverBody(
+  cardInstanceId: string,
+  target: CardTarget,
+  robotCode: string,
+  cardTemplateId: string
+): Record<string, unknown> {
+  const base = {
+    userId: target.userId,
+    cardTemplateId,
+    outTrackId: cardInstanceId,
+    callbackType: 'STREAM',
+    cardData: {
+      cardParamMap: {
+        content: '',
+        config: JSON.stringify({ autoLayout: true }),
+      },
+    },
+    userIdType: 1,
+  };
+
+  if (target.type === 'group') {
+    return {
+      ...base,
+      openSpaceId: `dtv1.card//IM_GROUP.${target.openConversationId}`,
+      imGroupOpenSpaceModel: {
+        supportForward: true,
+      },
+      imGroupOpenDeliverModel: {
+        robotCode,
+      },
+    };
+  }
+
+  return {
+    ...base,
+    openSpaceId: `dtv1.card//im_robot.${target.userId}`,
+    imRobotOpenSpaceModel: {
+      supportForward: true,
+      lastMessageI18n: { ZH_CN: 'AI 正在思考...' },
+      searchSupport: {
+        searchIcon: '',
+        searchDesc: 'AI 对话',
+      },
+    },
+    imRobotOpenDeliverModel: {
+      spaceType: 'IM_ROBOT',
+      robotCode,
+    },
+  };
+}
+
+/**
+ * AI Card 服务类
+ */
+export class AICardService {
+  /**
+   * 创建并投放 AI Card（使用 createAndDeliver 一步完成）
+   *
+   * @param conversationId - 会话 ID
+   * @param senderType - 发送者类型（user 单聊 / group 群聊）
+   * @param userId - 用户 ID（createAndDeliver 必需）
+   * @returns AI Card 实例，失败时返回 null
+   */
+  async createCard(
+    conversationId: string,
+    senderType: 'user' | 'group',
+    userId: string = ''
+  ): Promise<AICardInstance | null> {
+    const target: CardTarget =
+      senderType === 'group'
+        ? { type: 'group', userId, openConversationId: conversationId }
+        : { type: 'user', userId: userId || conversationId, openConversationId: conversationId };
+
+    const targetDesc =
+      senderType === 'group' ? `群聊 ${conversationId}` : `用户 ${userId || conversationId}`;
+
+    try {
+      const token = await getAccessToken();
+      const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const cardTemplateId = config.streaming.cardTemplateId || DEFAULT_CARD_TEMPLATE_ID;
+
+      console.log(`[AICard] 开始创建并投放卡片：${targetDesc}, outTrackId=${cardInstanceId}`);
+
+      const body = buildCreateAndDeliverBody(
+        cardInstanceId,
+        target,
+        String(config.dingtalk.appKey),
+        cardTemplateId
+      );
+
+      await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, body, {
+        headers: {
+          'x-acs-dingtalk-access-token': token,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log(`[AICard] 卡片创建并投放成功：${cardInstanceId}`);
+
+      return {
+        cardInstanceId,
+        accessToken: token,
+        tokenExpireTime: Date.now() + 7200 * 1000,
+        inputingStarted: false,
+        conversationId,
+        senderType,
+        userId: target.userId,
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[AICard] 创建卡片失败 (${targetDesc}): ${errorMessage}`);
+
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response) {
+        const responseData = axiosErr.response.data as { code?: string; message?: string };
+        console.error(
+          `[AICard] 错误响应：status=${axiosErr.response?.status}, code=${responseData.code}, message=${JSON.stringify(responseData.message)}`
+        );
+      } else if (axiosErr.request) {
+        console.error(`[AICard] 网络错误：无法连接到钉钉 API`);
+      }
+
+      return null;
+    }
+  }
+
+  /**
+   * 流式更新卡片内容
+   *
+   * @param card - AI Card 实例
+   * @param content - 要更新的内容
+   * @param finished - 是否已完成（默认 false）
+   */
+  async streamUpdate(
+    card: AICardInstance,
+    content: string,
+    finished: boolean = false
+  ): Promise<void> {
+    if (!card) {
+      console.warn('[AICard] streamUpdate 收到 null card，跳过更新');
+      return;
+    }
+
+    try {
+      await ensureValidToken(card);
+
+      // 如果 INPUTING 状态未启动，先切换到 INPUTING
+      if (!card.inputingStarted) {
+        const statusBody = {
+          outTrackId: card.cardInstanceId,
+          cardData: {
+            cardParamMap: {
+              flowStatus: AICardStatus.INPUTING,
+              content: content,
+              staticMsgContent: '',
+              sys_full_json_obj: JSON.stringify({ order: ['content'] }),
+              config: JSON.stringify({ autoLayout: true }),
+            },
+          },
+        };
+
+        await this.putWithRetry(
+          `${DINGTALK_API}/v1.0/card/instances`,
+          statusBody,
+          card.accessToken,
+          'INPUTING'
+        );
+
+        card.inputingStarted = true;
+      }
+
+      // 构建流式更新请求体
+      const fixedContent = ensureTableBlankLines(content);
+      const body = {
+        outTrackId: card.cardInstanceId,
+        guid: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        key: 'content',
+        content: fixedContent,
+        isFull: true,
+        isFinalize: finished,
+        isError: false,
+      };
+
+      console.log(
+        `[AICard] 流式更新：contentLen=${content.length}, isFinalize=${finished}, outTrackId=${card.cardInstanceId}`
+      );
+
+      const response = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, body, {
+        headers: {
+          'x-acs-dingtalk-access-token': card.accessToken,
+          'Content-Type': 'application/json',
+        },
+      });
+      console.log(
+        `[AICard] 流式更新响应：status=${response.status}, data=${JSON.stringify(response.data)}`
+      );
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[AICard] 流式更新失败：${errorMessage}`);
+
+      if (isQpsLimitError(err)) {
+        console.warn('[AICard] 触发 QPS 限流，退避 2 秒后重试...');
+        await sleep(2000);
+        try {
+          await this.streamUpdate(card, content, finished);
+          console.log('[AICard] QPS 限流重试成功');
+        } catch (retryErr) {
+          console.error('[AICard] QPS 限流重试失败，跳过本次更新');
+        }
+      } else {
+        console.error(`[AICard] 非 QPS 错误，跳过本次更新：${errorMessage}`);
+      }
+    }
+  }
+
+  /**
+   * 完成 AI Card
+   *
+   * @param card - AI Card 实例
+   * @param finalContent - 最终内容
+   */
+  async finish(card: AICardInstance, finalContent: string): Promise<void> {
+    if (!card) {
+      console.warn('[AICard] finish 收到 null card，跳过');
+      return;
+    }
+
+    try {
+      await ensureValidToken(card);
+
+      const fixedContent = ensureTableBlankLines(finalContent);
+
+      console.log(
+        `[AICard] 开始 finish：最终内容长度=${fixedContent.length}, outTrackId=${card.cardInstanceId}`
+      );
+
+      // 1. 先发送最终内容（isFinalize=true）
+      await this.streamUpdate(card, fixedContent, true);
+
+      // 2. 设置 FINISHED 状态
+      const body = {
+        outTrackId: card.cardInstanceId,
+        cardData: {
+          cardParamMap: {
+            flowStatus: AICardStatus.FINISHED,
+            content: fixedContent,
+            staticMsgContent: '',
+            sys_full_json_obj: JSON.stringify({ order: ['content'] }),
+            config: JSON.stringify({ autoLayout: true }),
+          },
+        },
+        cardUpdateOptions: { updateCardDataByKey: true },
+      };
+
+      await this.putWithRetry(
+        `${DINGTALK_API}/v1.0/card/instances`,
+        body,
+        card.accessToken,
+        'FINISHED'
+      );
+
+      console.log(`[AICard] 卡片完成：${card.cardInstanceId}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[AICard] 完成卡片失败：${errorMessage}`);
+
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response) {
+        console.error(
+          `[AICard] 完成失败详情：status=${axiosErr.response?.status}, data=${JSON.stringify(axiosErr.response.data)}`
+        );
+      }
+
+      throw err;
+    }
+  }
+
+  /**
+   * 带重试的 PUT 请求（用于 QPS 限流场景）
+   */
+  private async putWithRetry(
+    url: string,
+    body: Record<string, unknown>,
+    token: string,
+    operation: string,
+    maxRetries: number = 1
+  ): Promise<void> {
+    const doPut = async () => {
+      await axios.put(url, body, {
+        headers: {
+          'x-acs-dingtalk-access-token': token,
+          'Content-Type': 'application/json',
+        },
+      });
+    };
+
+    try {
+      await doPut();
+    } catch (err) {
+      if (isQpsLimitError(err)) {
+        console.warn(`[AICard] ${operation} 触发 QPS 限流，退避 2 秒后重试...`);
+        await sleep(2000);
+
+        for (let i = 0; i < maxRetries; i++) {
+          try {
+            await doPut();
+            console.log(`[AICard] ${operation} 重试成功`);
+            return;
+          } catch (retryErr) {
+            console.error(`[AICard] ${operation} 重试失败 (${i + 1}/${maxRetries})`);
+          }
+        }
+      }
+      throw err;
+    }
+  }
+}

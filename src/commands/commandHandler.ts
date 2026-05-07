@@ -36,6 +36,8 @@ export class CommandHandler {
         return this.handleStatus();
       case 'model':
         return this.handleModel(args);
+      case 'mode':
+        return this.handleMode(args);
       case 'history':
         return this.handleHistory(conversationId, args);
       case 'queue':
@@ -95,6 +97,32 @@ export class CommandHandler {
     // 注意：运行时切换 provider 需要修改 config
     // 这里仅返回提示信息，实际切换需要重启服务或修改环境变量
     return `⚠️ 模型切换需要修改环境变量 AI_PROVIDER=${newProvider} 并重启服务\n\n当前: ${config.aiProvider}`;
+  }
+
+  private handleMode(args: string[]): string {
+    const validModes = ['default', 'plan', 'auto-edit', 'full-auto'];
+
+    if (args.length === 0) {
+      return [
+        '## 🔐 权限模式\n',
+        '当前模式: **default**\n',
+        '可用模式：',
+        '- `default` — 默认权限（需确认才执行命令）',
+        '- `plan` — 只读计划模式（不修改任何文件）',
+        '- `auto-edit` — 自动编辑文件（不自动执行命令）',
+        '- `full-auto` — 全自动（自动执行所有操作）\n',
+        '使用 `/mode <模式名>` 切换',
+      ].join('\n');
+    }
+
+    const newMode = args[0].toLowerCase();
+    if (!validModes.includes(newMode)) {
+      return `❌ 不支持的模式：${newMode}\n\n可用模式：${validModes.map(m => `\`${m}\``).join('、')}`;
+    }
+
+    // 注意：实际切换需要通过 Agent 接口的 ModeSwitcher 传递给 CLI
+    // 当前版本仅记录意图，后续 Agent 抽象层集成后生效
+    return `✅ 权限模式已设置为 **${newMode}**\n\n> ⚠️ 此功能需要等待 Agent 抽象层集成后完全生效，当前为预留接口`;
   }
 
   private async handleHistory(conversationId: string, args: string[]): Promise<string> {

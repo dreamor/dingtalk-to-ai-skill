@@ -14,6 +14,8 @@ import { UserMessage, AIMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
 import { buildHistory } from '../utils/historyBuilder';
 import { config } from '../config';
+import { hookRunner } from '../hooks';
+import type { HookEvent } from '../hooks';
 import { formatError, getCLIInstallSuggestion } from './errorFormatter';
 
 /**
@@ -239,6 +241,14 @@ export class QueueConsumer {
     try {
       // 5. 添加消息到会话历史
       await this.sessionManager.addMessage(session.conversationId, message);
+
+      // 触发消息接收钩子
+      hookRunner.trigger('message_received' as HookEvent, {
+        userId: message.userId,
+        userName: message.username,
+        conversationId: session.conversationId,
+        content: message.content.substring(0, 200),
+      }).catch(() => {});
 
       // 6. 获取对话历史
       const history = await this.buildHistory(session.conversationId);

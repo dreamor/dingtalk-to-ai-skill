@@ -12,6 +12,16 @@ jest.mock('../../message-queue/rateLimiter');
 jest.mock('../../message-queue/concurrencyController');
 jest.mock('../../utils/dedupCache');
 jest.mock('../../opencode');
+jest.mock('../../dingtalk/streamingCard');
+jest.mock('../../hooks/hookRunner', () => ({
+  hookRunner: { trigger: jest.fn(), register: jest.fn(), list: jest.fn().mockReturnValue([]) },
+}));
+jest.mock('../../agents', () => ({
+  agentRegistry: {
+    list: jest.fn().mockReturnValue([]),
+    getDefaultName: jest.fn().mockReturnValue('opencode'),
+  },
+}));
 jest.mock('../../claude');
 
 // Mock config
@@ -62,6 +72,18 @@ jest.mock('../../config', () => ({
       reconnectBaseDelay: 1000,
       reconnectMaxDelay: 60000,
     },
+    streaming: {
+      enabled: false,
+      intervalMs: 1500,
+      minDeltaChars: 30,
+      maxChars: 2000,
+      thinkingText: '⏳ AI 正在思考...',
+    },
+    persistentSession: {
+      enabled: false,
+      poolSize: 5,
+      idleTimeout: 300000,
+    },
   },
   validateConfig: jest.fn(),
 }));
@@ -99,7 +121,9 @@ describe('GatewayServer', () => {
       batchDequeue: jest.fn().mockReturnValue([]),
       complete: jest.fn(),
       fail: jest.fn(),
-      getStatus: jest.fn().mockReturnValue({ queued: 0, processing: 0, byPriority: { high: 0, normal: 0, low: 0 } }),
+      getStatus: jest
+        .fn()
+        .mockReturnValue({ queued: 0, processing: 0, byPriority: { high: 0, normal: 0, low: 0 } }),
     } as any;
 
     const mockRateLimiter = {

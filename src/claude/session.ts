@@ -218,9 +218,8 @@ export class ClaudeSession {
       this.setupReadline();
       this.setupErrorHandling();
 
-      // 等待进程就绪（新版无 system.init，等 hooks 完成或超时）
-      // 最多 120 秒，但在 hooks 都完成或收到第一条输出后提前结束
-      await this.waitForInit(120_000);
+      // 等待进程就绪（新版无 system.init，等 hooks 完成或收到首条输出或超时）
+      await this.waitForInit(30_000);
 
       this.setState('ready');
       this.resetIdleTimer();
@@ -480,6 +479,13 @@ export class ClaudeSession {
       return;
     }
 
+    // 收到任何有效事件时，若仍在等待初始化，立即 resolve（新版 CLI 可能不发 system.init）
+    if (this.initResolve && event.type !== 'system') {
+      console.log(`[ClaudeSession] 收到首条 ${event.type} 事件，初始化完成`);
+      this.initResolve();
+      this.initResolve = null;
+    }
+
     switch (event.type) {
       case 'system':
         this.handleSystemEvent(event);
@@ -591,25 +597,23 @@ export class ClaudeSession {
     this.process?.stdin?.write(serialized);
   }
 
-  /** 等待 system.init 事件 */
+  /** 等待初始化完成（system.init / hooks / 首条输出 / 超时） */
   private initResolve: (() => void) | null = null;
-  private initReject: ((error: Error) => void) | null = null;
 
   private waitForInit(timeoutMs: number): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise(resolve => {
       if (this.sessionId) {
         resolve();
         return;
       }
 
       this.initResolve = resolve;
-      this.initReject = reject;
 
       setTimeout(() => {
-        if (this.initReject) {
-          this.initReject(new Error(`Session init timeout after ${timeoutMs}ms`));
+        if (this.initResolve) {
+          console.log(`[ClaudeSession] 初始化超时 ${timeoutMs}ms，直接进入 ready 状态`);
+          this.initResolve();
           this.initResolve = null;
-          this.initReject = null;
         }
       }, timeoutMs);
     });

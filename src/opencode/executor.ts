@@ -17,13 +17,13 @@ export interface OpenCodeResult {
 }
 
 export interface OpenCodeConfig {
-  command: string;        // opencode 命令路径
-  timeout: number;        // 执行超时时间
-  maxRetries: number;     // 最大重试次数
-  retryBaseDelay?: number;  // 重试基础延迟（毫秒）
-  retryMaxDelay?: number;   // 重试最大延迟（毫秒）
-  workingDir?: string;    // 工作目录
-  model: string;          // 模型名称
+  command: string; // opencode 命令路径
+  timeout: number; // 执行超时时间
+  maxRetries: number; // 最大重试次数
+  retryBaseDelay?: number; // 重试基础延迟（毫秒）
+  retryMaxDelay?: number; // 重试最大延迟（毫秒）
+  workingDir?: string; // 工作目录
+  model: string; // 模型名称
   maxInputLength: number; // 最大输入长度
 }
 
@@ -70,33 +70,30 @@ export class OpenCodeExecutor {
     try {
       // 构建完整的输入（包含上下文）
       const fullPrompt = this.buildPromptWithContext(prompt, context);
-      
+
       // 验证输入长度
       this.validateInput(fullPrompt);
-      
+
       // 构建命令参数（不包含用户消息，通过 stdin 传递）
       const args = this.buildCommandArgs();
 
       // 通过 stdin 传递消息，避免命令注入风险
       // 使用重试机制处理临时性故障
-      const result = await withRetry(
-        () => this.runCommand(args, fullPrompt),
-        {
-          maxRetries: this.config.maxRetries,
-          baseDelay: this.config.retryBaseDelay || 1000,
-          maxDelay: this.config.retryMaxDelay || 10000,
-          exponential: true,
-          onRetry: (attempt, error, delay) => {
-            console.warn(
-              `[OpenCode] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
-            );
-          },
-        }
-      );
-      
+      const result = await withRetry(() => this.runCommand(args, fullPrompt), {
+        maxRetries: this.config.maxRetries,
+        baseDelay: this.config.retryBaseDelay || 1000,
+        maxDelay: this.config.retryMaxDelay || 10000,
+        exponential: true,
+        onRetry: (attempt, error, delay) => {
+          console.warn(
+            `[OpenCode] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
+          );
+        },
+      });
+
       // 解析输出
       const parsedOutput = this.parseOutput(result.output);
-      
+
       return {
         ...result,
         output: parsedOutput,
@@ -104,7 +101,7 @@ export class OpenCodeExecutor {
       };
     } catch (error) {
       console.error('[OpenCode] 执行失败:', error);
-      
+
       if (error instanceof InputValidationError) {
         return {
           success: false,
@@ -114,7 +111,7 @@ export class OpenCodeExecutor {
           exitCode: -1,
         };
       }
-      
+
       return {
         success: false,
         output: '',
@@ -193,14 +190,16 @@ export class OpenCodeExecutor {
    * 执行命令（通过 stdin 传递消息）
    */
   private runCommand(args: string[], stdinInput: string): Promise<OpenCodeResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = '';
       let stderr = '';
       let processInstance: ChildProcess | null = null;
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      console.log(`[OpenCode] 执行命令: ${this.config.command} ${args.join(' ')} (通过 stdin 传递输入)`);
+      console.log(
+        `[OpenCode] 执行命令: ${this.config.command} ${args.join(' ')} (通过 stdin 传递输入)`
+      );
 
       // 启动 Open Code CLI 进程，使用 pipe stdin
       processInstance = spawn(this.config.command, args, {
@@ -219,26 +218,26 @@ export class OpenCodeExecutor {
       }
 
       // 捕获标准输出
-      processInstance.stdout?.on('data', (data) => {
+      processInstance.stdout?.on('data', data => {
         stdout += data.toString();
       });
 
       // 捕获错误输出
-      processInstance.stderr?.on('data', (data) => {
+      processInstance.stderr?.on('data', data => {
         stderr += data.toString();
       });
 
       // 进程结束
-      processInstance.on('close', (code) => {
+      processInstance.on('close', code => {
         if (resolved) return;
         resolved = true;
-        
+
         // 清理超时定时器
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        
+
         console.log(`[OpenCode] 进程结束，退出码: ${code}`);
         // 调试：打印 stdout 和 stderr 内容
         if (stdout) {
@@ -247,7 +246,7 @@ export class OpenCodeExecutor {
         if (stderr) {
           console.log(`[OpenCode] stderr: ${stderr.substring(0, 500)}`);
         }
-        
+
         resolve({
           success: code === 0,
           output: stdout.trim(),
@@ -258,18 +257,18 @@ export class OpenCodeExecutor {
       });
 
       // 错误处理
-      processInstance.on('error', (error) => {
+      processInstance.on('error', error => {
         if (resolved) return;
         resolved = true;
-        
+
         // 清理超时定时器
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        
+
         console.error('[OpenCode] 进程错误:', error);
-        
+
         // 如果是命令未找到
         if ('code' in error && error.code === 'ENOENT') {
           resolve({
@@ -296,14 +295,14 @@ export class OpenCodeExecutor {
           console.log(`[OpenCode] 执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
           resolved = true;
           processInstance.kill('SIGTERM');
-          
+
           // 如果 SIGTERM 不生效，强制杀死
           setTimeout(() => {
             if (processInstance && !processInstance.killed) {
               processInstance.kill('SIGKILL');
             }
           }, 5000);
-          
+
           resolve({
             success: false,
             output: stdout.trim(),
@@ -322,7 +321,7 @@ export class OpenCodeExecutor {
    */
   async executeStream(
     prompt: string,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string) => void | Promise<void>,
     context?: MessageContext
   ): Promise<OpenCodeResult> {
     const startTime = Date.now();
@@ -331,10 +330,10 @@ export class OpenCodeExecutor {
 
     try {
       const fullPrompt = this.buildPromptWithContext(prompt, context);
-      
+
       // 验证输入长度
       this.validateInput(fullPrompt);
-      
+
       const args = this.buildCommandArgs();
 
       return await this.runCommandStream(args, fullPrompt, onChunk, startTime);
@@ -348,7 +347,7 @@ export class OpenCodeExecutor {
           exitCode: -1,
         };
       }
-      
+
       return {
         success: false,
         output: '',
@@ -362,13 +361,13 @@ export class OpenCodeExecutor {
   /**
    * 流式执行命令
    */
-  private runCommandStream(
+  private async runCommandStream(
     args: string[],
     stdinInput: string,
-    onChunk: (chunk: string) => void,
+    onChunk: (chunk: string) => void | Promise<void>,
     startTime: number
   ): Promise<OpenCodeResult> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let stdout = '';
       let stderr = '';
       let processInstance: ChildProcess | null = null;
@@ -391,32 +390,32 @@ export class OpenCodeExecutor {
       }
 
       // 流式输出
-      processInstance.stdout?.on('data', (data) => {
+      processInstance.stdout?.on('data', async data => {
         const chunk = data.toString();
         stdout += chunk;
-        onChunk(chunk);
+        await onChunk(chunk);
       });
 
-      processInstance.stderr?.on('data', (data) => {
+      processInstance.stderr?.on('data', async data => {
         const chunk = data.toString();
         stderr += chunk;
         // 某些输出也可能是有用的
         if (!chunk.includes('warning') && !chunk.includes('Warning')) {
-          onChunk(chunk);
+          await onChunk(chunk);
         }
       });
 
-      processInstance.on('close', (code) => {
+      processInstance.on('close', code => {
         if (resolved) return;
         resolved = true;
-        
+
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        
+
         const parsedOutput = this.parseOutput(stdout.trim());
-        
+
         resolve({
           success: code === 0,
           output: parsedOutput,
@@ -426,15 +425,15 @@ export class OpenCodeExecutor {
         });
       });
 
-      processInstance.on('error', (error) => {
+      processInstance.on('error', error => {
         if (resolved) return;
         resolved = true;
-        
+
         if (timeoutId) {
           clearTimeout(timeoutId);
           timeoutId = null;
         }
-        
+
         resolve({
           success: false,
           output: '',
@@ -449,7 +448,7 @@ export class OpenCodeExecutor {
         if (processInstance && !processInstance.killed && !resolved) {
           resolved = true;
           processInstance.kill('SIGTERM');
-          
+
           resolve({
             success: false,
             output: stdout.trim(),
@@ -466,12 +465,12 @@ export class OpenCodeExecutor {
    * 检查 OpenCode CLI 是否可用
    */
   async isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const proc = spawn(this.config.command, ['--version'], {
         stdio: 'ignore',
       });
 
-      proc.on('close', (code) => {
+      proc.on('close', code => {
         resolve(code === 0);
       });
 
@@ -498,8 +497,6 @@ export class OpenCodeExecutor {
 /**
  * 创建 Open Code 执行器实例
  */
-export function createOpenCodeExecutor(
-  options?: Partial<OpenCodeConfig>
-): OpenCodeExecutor {
+export function createOpenCodeExecutor(options?: Partial<OpenCodeConfig>): OpenCodeExecutor {
   return new OpenCodeExecutor(options);
 }
