@@ -489,6 +489,7 @@ export class DingtalkStreamService {
           }
         }
       } else {
+        // Non-text messages are not supported
       }
     } catch (error) {
       logger.error(
