@@ -11,6 +11,7 @@ dotenv.config({ override: true });
 export interface DingtalkConfig {
   appKey: string;
   appSecret: string;
+  allowFrom: string;
 }
 
 export interface GatewayConfig {
@@ -32,6 +33,8 @@ export interface AIConfig {
   maxInputLength: number;
 }
 
+export type PermissionMode = 'default' | 'plan' | 'auto-edit' | 'dangerously-skip-permissions';
+
 export interface ClaudeCodeConfig {
   command: string;
   timeout: number;
@@ -41,6 +44,7 @@ export interface ClaudeCodeConfig {
   workingDir?: string;
   model: string;
   maxInputLength: number;
+  permissionMode: PermissionMode;
 }
 
 export interface SessionConfig {
@@ -131,19 +135,30 @@ export interface MemoryConfig {
   boostIncrement: number;
 }
 
+export type DisplayMode = 'full' | 'compact' | 'quiet';
+
+export interface DisplayConfig {
+  mode: DisplayMode;
+  thinkingMessages: boolean;
+  thinkingMaxLen: number;
+  toolMessages: boolean;
+  toolMaxLen: number;
+}
+
 export interface StreamingConfig {
   enabled: boolean;
-  intervalMs: number; // 更新间隔，默认 1500ms
-  minDeltaChars: number; // 最少新增字符数才触发更新，默认 30
-  maxChars: number; // 预览最大字符数，默认 2000
-  thinkingText: string; // 思考中提示文本
-  cardTemplateId: string; // AI 卡片模板 ID
+  intervalMs: number;
+  minDeltaChars: number;
+  maxChars: number;
+  thinkingText: string;
+  cardTemplateId: string;
 }
 
 export interface PersistentSessionConfig {
   enabled: boolean; // 是否启用持久化会话（消除冷启动）
   maxSessions: number; // 最大会话数，默认 10
   idleTimeout: number; // 空闲超时（毫秒），默认 30 分钟
+  warmUpSessions: number; // 启动时预热会话数，默认 1（0 禁用预热）
 }
 
 // ==================== 配置验证错误 ====================
@@ -206,6 +221,7 @@ export const config = {
   dingtalk: {
     appKey: process.env.DINGTALK_APP_KEY || '',
     appSecret: process.env.DINGTALK_APP_SECRET || '',
+    allowFrom: process.env.DINGTALK_ALLOW_FROM || '*',
   } as DingtalkConfig,
 
   gateway: {
@@ -234,6 +250,12 @@ export const config = {
     workingDir: process.env.CLAUDE_WORKING_DIR || process.cwd(),
     model: process.env.CLAUDE_MODEL || '',
     maxInputLength: parseEnvNumber('CLAUDE_MAX_INPUT_LENGTH', 10000, 100, 100000),
+    permissionMode: parseEnvString('CLAUDE_PERMISSION_MODE', 'dangerously-skip-permissions', [
+      'default',
+      'plan',
+      'auto-edit',
+      'dangerously-skip-permissions',
+    ]) as PermissionMode,
   } as ClaudeCodeConfig,
 
   session: {
@@ -325,6 +347,14 @@ export const config = {
     boostIncrement: parseEnvNumber('MEMORY_BOOST_INCREMENT', 1, 1, 10) / 10,
   } as MemoryConfig,
 
+  display: {
+    mode: parseEnvString('DISPLAY_MODE', 'compact', ['full', 'compact', 'quiet']) as DisplayMode,
+    thinkingMessages: process.env.DISPLAY_THINKING_MESSAGES !== 'false',
+    thinkingMaxLen: parseEnvNumber('DISPLAY_THINKING_MAX_LEN', 300, 50, 2000),
+    toolMessages: process.env.DISPLAY_TOOL_MESSAGES !== 'false',
+    toolMaxLen: parseEnvNumber('DISPLAY_TOOL_MAX_LEN', 500, 50, 5000),
+  } as DisplayConfig,
+
   streaming: {
     enabled: process.env.STREAMING_ENABLED === 'true',
     intervalMs: parseEnvNumber('STREAMING_INTERVAL_MS', 1500, 500, 10000),
@@ -339,6 +369,7 @@ export const config = {
     enabled: process.env.PERSISTENT_SESSION_ENABLED !== 'false',
     maxSessions: parseEnvNumber('PERSISTENT_SESSION_MAX_SESSIONS', 10, 1, 100),
     idleTimeout: parseEnvNumber('PERSISTENT_SESSION_IDLE_TIMEOUT', 1800000, 60000, 86400000),
+    warmUpSessions: parseEnvNumber('PERSISTENT_SESSION_WARM_UP', 1, 0, 5),
   } as PersistentSessionConfig,
 };
 
@@ -418,7 +449,7 @@ export function validateConfig(): void {
   console.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
   console.log(`   - 流式输出: ${config.streaming.enabled ? '启用' : '禁用'}`);
   console.log(
-    `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
+    `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 预热 ${config.persistentSession.warmUpSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
   );
 }
 

@@ -4,6 +4,11 @@
 
 import { StreamingCardManager } from '../streamingCard';
 
+// Mock axios
+jest.mock('axios', () => ({
+  post: jest.fn().mockResolvedValue({ data: {} }),
+}));
+
 // Mock AICardService
 jest.mock('../aiCardService', () => ({
   AICardService: jest.fn().mockImplementation(() => ({
@@ -190,6 +195,9 @@ describe('StreamingCardManager', () => {
     });
 
     it('sendMarkdownFn 失败时使用兜底', async () => {
+      const axios = require('axios');
+      axios.post.mockRejectedValueOnce(new Error('Webhook failed'));
+
       mockCardService.createCard.mockResolvedValue(null);
 
       const sendMarkdownFn = jest.fn().mockRejectedValue(new Error('Failed'));

@@ -17,8 +17,11 @@ import {
   isAlertEnabled,
 } from '../utils/alert';
 import { parseCommand } from '../commands/commandParser';
-import type { CommandHandler, CommandDeps } from '../commands/commandHandler';
+import type { CommandHandler } from '../commands/commandHandler';
 import type { MediaProcessor } from '../media/mediaProcessor';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Stream');
 
 export interface MessageHandler {
   (
@@ -65,14 +68,10 @@ export class DingtalkStreamService {
 
   constructor() {
     this.maxReconnectAttempts = config.stream.maxReconnectAttempts;
-    console.log('[Stream] Service initialized (enhanced version)');
-    console.log('  - Topics:', DEFAULT_SUBSCRIPTIONS.map(s => s.topic).join(', '));
-    console.log('  - KeepAlive enabled');
-    console.log('  - Key fix: Immediate ACK mechanism');
-    console.log('  - Heartbeat timeout: 120s');
-    console.log(`  - Auto-reconnect: enabled (max ${this.maxReconnectAttempts} attempts)`);
-    console.log(
-      `  - Reconnect delay: ${config.stream.reconnectBaseDelay || 1000}ms - ${config.stream.reconnectMaxDelay || 60000}ms`
+    logger.log('Service initialized (enhanced version)');
+    logger.log(`  Topics: ${DEFAULT_SUBSCRIPTIONS.map(s => s.topic).join(', ')}`);
+    logger.log(
+      `  Auto-reconnect: max ${this.maxReconnectAttempts} attempts, delay ${config.stream.reconnectBaseDelay || 1000}ms - ${config.stream.reconnectMaxDelay || 60000}ms`
     );
 
     this.cleanupTimer = setInterval(
@@ -95,7 +94,7 @@ export class DingtalkStreamService {
 
   setMediaProcessor(processor: MediaProcessor): void {
     this.mediaProcessor = processor;
-    console.log('[Stream] Media processor set');
+    logger.log('Media processor set');
   }
 
   async start(): Promise<void> {
@@ -109,8 +108,7 @@ export class DingtalkStreamService {
       throw new Error('Missing DINGTALK_APP_KEY or DINGTALK_APP_SECRET');
     }
 
-    console.log('[Stream] Initializing client...');
-    console.log(`  - clientId: ${appKey}`);
+    logger.log('Initializing client...');
 
     this.client = new DWClient({
       clientId: appKey,
@@ -128,10 +126,8 @@ export class DingtalkStreamService {
       this.connectionStartTime = Date.now();
       this.isConnected = true;
       this.lastHeartbeatTime = Date.now();
-      this.reconnectAttempts = 0; // 重置重连计数
-      console.log('[Stream] ✅ Connection established');
-      console.log(`  - Connected at: ${new Date().toISOString()}`);
-      console.log(`  - Reconnect attempts reset to 0`);
+      this.reconnectAttempts = 0;
+      logger.log(`Connection established at ${new Date().toISOString()}`);
     });
 
     this.client.on('close', () => {
@@ -139,7 +135,7 @@ export class DingtalkStreamService {
       const duration = this.connectionStartTime
         ? Math.round((Date.now() - this.connectionStartTime) / 1000)
         : 0;
-      console.log(`[Stream] ⚠️ Connection closed (duration: ${duration}s)`);
+      logger.warn(`Connection closed (duration: ${duration}s)`);
 
       // 如果不是手动断开，尝试重新连接
       if (!this.isManualDisconnect) {
@@ -149,7 +145,7 @@ export class DingtalkStreamService {
 
     this.client.on('error', (error: Error) => {
       this.isConnected = false;
-      console.error('[Stream] ❌ Connection error:', error.message);
+      logger.error('Connection error:', error.message);
 
       // 如果不是手动断开，尝试重新连接
       if (!this.isManualDisconnect) {
@@ -158,26 +154,19 @@ export class DingtalkStreamService {
     });
 
     this.client.registerCallbackListener(TOPIC_ROBOT, async (msg: DWClientDownStream) => {
-      console.log('========================================');
-      console.log('[Stream] Received callback');
-      console.log('  - Message ID:', msg.headers.messageId);
-      console.log('  - Topic:', msg.headers.topic);
-      console.log('========================================');
+      logger.log(`Received callback: msgId=${msg.headers.messageId}, topic=${msg.headers.topic}`);
 
       await this.handleMessage(msg).catch(error => {
-        console.error('[Stream] Failed to handle message:', error);
+        logger.error('Failed to handle message:', error);
       });
     });
 
     try {
-      console.log('[Stream] Connecting to DingTalk Stream...');
+      logger.log('Connecting to DingTalk Stream...');
       await this.client.connect();
-      console.log('[Stream] Connected, waiting for messages...');
+      logger.log('Connected, waiting for messages...');
     } catch (error) {
-      console.error(
-        '[Stream] Connection failed:',
-        error instanceof Error ? error.message : String(error)
-      );
+      logger.error('Connection failed:', error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -187,8 +176,8 @@ export class DingtalkStreamService {
       if (this.isConnected && this.lastHeartbeatTime > 0) {
         const timeSinceLastHeartbeat = Date.now() - this.lastHeartbeatTime;
         if (timeSinceLastHeartbeat > this.heartbeatTimeout) {
-          console.warn(
-            `[Stream] Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), triggering reconnect...`
+          logger.warn(
+            `Heartbeat timeout (${Math.round(timeSinceLastHeartbeat / 1000)}s), triggering reconnect...`
           );
           // 心跳超时，主动触发重连
           this.isConnected = false;
@@ -199,10 +188,8 @@ export class DingtalkStreamService {
 
       if (this.lastMessageTime > 0) {
         const timeSinceLastMessage = Date.now() - this.lastMessageTime;
-        console.log(
-          `[Stream] Status: connected=${this.isConnected}, ` +
-            `lastMsg=${Math.round(timeSinceLastMessage / 1000)}s ago, ` +
-            `pending=${this.pendingMessages.size}`
+        logger.log(
+          `Status: connected=${this.isConnected}, lastMsg=${Math.round(timeSinceLastMessage / 1000)}s ago, pending=${this.pendingMessages.size}`
         );
       }
     }, 60 * 1000);
@@ -223,8 +210,8 @@ export class DingtalkStreamService {
     this.reconnectAttempts++;
 
     if (this.reconnectAttempts > this.maxReconnectAttempts) {
-      console.error(`[Stream] ❌ 重连次数超过限制 (${this.maxReconnectAttempts}次)，停止重连`);
-      console.error('[Stream] 请检查网络连接或钉钉配置，然后手动重启服务');
+      logger.error(`重连次数超过限制 (${this.maxReconnectAttempts}次)，停止重连`);
+      logger.error('请检查网络连接或钉钉配置，然后手动重启服务');
 
       // 发送告警
       if (isAlertEnabled()) {
@@ -240,8 +227,9 @@ export class DingtalkStreamService {
     const maxDelay = config.stream.reconnectMaxDelay || 60000;
     const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts - 1), maxDelay);
 
-    console.log(`[Stream] 🔄 准备重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-    console.log(`[Stream] ⏳ 等待 ${delay / 1000} 秒后重试...`);
+    logger.log(
+      `准备重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts}), 等待 ${delay / 1000}s...`
+    );
 
     // 清除之前的重连定时器
     if (this.reconnectTimer) {
@@ -250,22 +238,20 @@ export class DingtalkStreamService {
 
     // 设置重连定时器
     this.reconnectTimer = setTimeout(async () => {
-      console.log(
-        `[Stream] 🔄 执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`
-      );
+      logger.log(`执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
       try {
         await this.start();
-        console.log(`[Stream] ✅ 重连成功！`);
+        logger.log('重连成功');
       } catch (error) {
-        console.error(`[Stream] ❌ 重连失败:`, error instanceof Error ? error.message : error);
+        logger.error('重连失败:', error instanceof Error ? error.message : error);
         // handleDisconnect 会通过 close 事件被再次调用
       }
     }, delay);
   }
 
   async stop(): Promise<void> {
-    console.log('[Stream] Stopping service...');
+    logger.log('Stopping service...');
 
     // 标记为手动断开，不进行重连
     this.isManualDisconnect = true;
@@ -290,7 +276,7 @@ export class DingtalkStreamService {
       try {
         this.client.disconnect();
       } catch (error) {
-        console.error('Error disconnecting:', error);
+        logger.error('Error disconnecting:', error);
       }
       this.client = null;
     }
@@ -298,7 +284,7 @@ export class DingtalkStreamService {
     this.isConnected = false;
     this.pendingMessages.clear();
     this.reconnectAttempts = 0;
-    console.log('[Stream] Service stopped');
+    logger.log('Service stopped');
   }
 
   /**
@@ -330,7 +316,6 @@ export class DingtalkStreamService {
 
     // KEY FIX: ACK to DingTalk immediately to prevent timeout
     this.client?.socketCallBackResponse(messageId, { received: true });
-    console.log(`[Stream] [${messageId}] ACK sent to DingTalk`);
 
     try {
       const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
@@ -338,13 +323,7 @@ export class DingtalkStreamService {
       this.lastMessageTime = Date.now();
       this.updateHeartbeat();
 
-      console.log(`[Stream] [${messageId}] Message data:`, {
-        type: data.msgtype,
-        hasText: !!data.text?.content,
-        hasContent: !!data.content,
-        hasConversationId: !!data.conversationId,
-        hasSessionWebhook: !!data.sessionWebhook,
-      });
+      logger.log(`[${messageId}] type=${data.msgtype}, hasText=${!!data.text?.content}`);
 
       const {
         senderId,
@@ -358,6 +337,13 @@ export class DingtalkStreamService {
       } = data;
 
       const userId = senderId || 'unknown';
+
+      // allow_from 访问控制
+      if (!this.isUserAllowed(userId)) {
+        logger.log(`[${messageId}] 用户 ${userId} 不在允许列表中，忽略消息`);
+        return;
+      }
+
       // chatType: "group" = 群聊，"person" = 单聊
       const conversationType: 'group' | 'user' = chatType === 'group' ? 'group' : 'user';
       const userName = senderNick || 'Unknown';
@@ -368,7 +354,7 @@ export class DingtalkStreamService {
       // Handle media message types
       const mediaTypes = ['voice', 'picture', 'richText', 'video', 'file'];
       if (msgtype && mediaTypes.includes(msgtype)) {
-        console.log(`[Stream] [${messageId}] Received media message type: ${msgtype}`);
+        logger.log(`[${messageId}] Received media message type: ${msgtype}`);
 
         if (this.mediaProcessor) {
           try {
@@ -403,7 +389,7 @@ export class DingtalkStreamService {
               messageContent = processedMedia.text;
             }
           } catch (error) {
-            console.error(`[Stream] [${messageId}] Failed to process ${msgtype} message:`, error);
+            logger.error(`[${messageId}] Failed to process ${msgtype} message:`, error);
             messageContent = `[${msgtype}消息] 用户发送了${msgtype}消息（处理失败）`;
           }
         } else {
@@ -436,28 +422,23 @@ export class DingtalkStreamService {
           failureCount: 0,
         });
 
-        console.log(`[Stream] [${messageId}] Session saved: ${conversationId.substring(0, 30)}...`);
-
         const adminUserId = getAdminConversationId();
         if (adminUserId && userId === adminUserId) {
-          console.log(`[Stream] [${messageId}] Admin message detected`);
           updateAdminSessionWebhook(conversationId, sessionWebhook);
         }
       }
 
       // Process messages with content
       if (messageContent && messageContent.trim() !== '') {
-        console.log(
-          `[Stream] [${messageId}] From ${userName}(${userId}): ` +
-            `${messageContent.substring(0, 80)}${messageContent.length > 80 ? '...' : ''}`
+        logger.log(
+          `[${messageId}] From ${userName}(${userId}): ${messageContent.substring(0, 80)}${messageContent.length > 80 ? '...' : ''}`
         );
-        console.log(`[Stream] [${messageId}] sessionWebhook: ${sessionWebhook ? 'yes' : 'no'}`);
 
         // Call message handler (async, don't wait)
         // 检查是否为 / 命令
         const parsedCommand = parseCommand(messageContent);
         if (parsedCommand && this.commandHandler) {
-          console.log(`[Stream] [${messageId}] Command detected: /${parsedCommand.command}`);
+          logger.log(`[${messageId}] Command detected: /${parsedCommand.command}`);
           try {
             const response = await this.commandHandler.handle(
               parsedCommand,
@@ -468,7 +449,7 @@ export class DingtalkStreamService {
               await this.sendMarkdownMessage(conversationId, '命令结果', response);
             }
           } catch (error) {
-            console.error(`[Stream] [${messageId}] Command handling failed:`, error);
+            logger.error(`[${messageId}] Command handling failed:`, error);
             if (sessionWebhook) {
               await this.sendTextMessage(conversationId, '❌ 命令处理失败，请稍后重试');
             }
@@ -477,7 +458,7 @@ export class DingtalkStreamService {
         }
 
         if (this.messageHandler && sessionWebhook) {
-          console.log(`[Stream] [${messageId}] Starting async processing...`);
+          logger.log(`[${messageId}] Starting async processing...`);
 
           // Async processing without blocking
           // 使用 void 明确表明我们不等待这个 Promise
@@ -492,27 +473,26 @@ export class DingtalkStreamService {
             .then(() => {
               // 只在 debug 模式下输出完成日志，避免测试污染
               if (process.env.NODE_ENV !== 'test') {
-                console.log(`[Stream] [${messageId}] Async processing completed`);
+                logger.log(`[${messageId}] Async processing completed`);
               }
             })
             .catch(error => {
               // 错误总是输出
-              console.error(`[Stream] [${messageId}] Async processing failed:`, error.message);
+              logger.error(`[${messageId}] Async processing failed:`, error.message);
             });
         } else {
           if (!this.messageHandler) {
-            console.warn(`[Stream] [${messageId}] Message handler not set`);
+            logger.warn(`[${messageId}] Message handler not set`);
           }
           if (!sessionWebhook) {
-            console.warn(`[Stream] [${messageId}] No sessionWebhook, cannot reply`);
+            logger.warn(`[${messageId}] No sessionWebhook, cannot reply`);
           }
         }
       } else {
-        console.log(`[Stream] [${messageId}] Skipping empty message (type=${msgtype})`);
       }
     } catch (error) {
-      console.error(
-        `[Stream] [${messageId}] Failed to parse message:`,
+      logger.error(
+        `[${messageId}] Failed to parse message:`,
         error instanceof Error ? error.message : error
       );
       // Already ACKed at function start
@@ -538,7 +518,7 @@ export class DingtalkStreamService {
       // 更新最后使用时间
       sessionInfo.lastUsedAt = Date.now();
 
-      console.log(`[Stream] Sending text: ${content.substring(0, 50)}...`);
+      logger.log(`Sending text: ${content.substring(0, 50)}...`);
 
       const messageBody = {
         msgtype: 'text',
@@ -559,24 +539,18 @@ export class DingtalkStreamService {
       sessionInfo.healthStatus = 'healthy';
       sessionInfo.failureCount = 0;
 
-      console.log('[Stream] Text message sent successfully');
       return true;
     } catch (error: any) {
-      console.error('[Stream] Failed to send text:', error.message);
+      logger.error('Failed to send text:', error.message);
 
-      // 更新失败计数
       const sessionInfo = this.pendingMessages.get(conversationId);
       if (sessionInfo) {
         sessionInfo.failureCount++;
         sessionInfo.healthStatus = 'failed';
 
         if (sessionInfo.failureCount >= 3) {
-          console.warn(`[Stream] Webhook 连续失败 3 次，标记为不可用：${conversationId}`);
+          logger.warn(`Webhook 连续失败 3 次，标记为不可用：${conversationId}`);
         }
-      }
-
-      if (error.response?.data) {
-        console.error('[Stream] Response:', JSON.stringify(error.response.data));
       }
       return false;
     }
@@ -597,7 +571,7 @@ export class DingtalkStreamService {
       // 更新最后使用时间
       sessionInfo.lastUsedAt = Date.now();
 
-      console.log(`[Stream] Sending markdown: ${title}`);
+      logger.log(`Sending markdown: ${title}`);
 
       const messageBody = {
         msgtype: 'markdown',
@@ -615,24 +589,18 @@ export class DingtalkStreamService {
       sessionInfo.healthStatus = 'healthy';
       sessionInfo.failureCount = 0;
 
-      console.log('[Stream] Markdown message sent successfully');
       return true;
     } catch (error: any) {
-      console.error('[Stream] Failed to send markdown:', error.message);
+      logger.error('Failed to send markdown:', error.message);
 
-      // 更新失败计数
       const sessionInfo = this.pendingMessages.get(conversationId);
       if (sessionInfo) {
         sessionInfo.failureCount++;
         sessionInfo.healthStatus = 'failed';
 
         if (sessionInfo.failureCount >= 3) {
-          console.warn(`[Stream] Webhook 连续失败 3 次，标记为不可用：${conversationId}`);
+          logger.warn(`Webhook 连续失败 3 次，标记为不可用：${conversationId}`);
         }
-      }
-
-      if (error.response?.data) {
-        console.error('[Stream] Response:', JSON.stringify(error.response.data));
       }
       return false;
     }
@@ -655,17 +623,17 @@ export class DingtalkStreamService {
       if (sessionInfo.failureCount >= 3 && now - sessionInfo.lastUsedAt > 5 * 60 * 1000) {
         this.pendingMessages.delete(conversationId);
         staleCount++;
-        console.log(
-          `[Stream] Cleaned stale webhook (${sessionInfo.failureCount} failures): ${conversationId.substring(0, 30)}...`
+        logger.log(
+          `Cleaned stale webhook (${sessionInfo.failureCount} failures): ${conversationId.substring(0, 30)}...`
         );
       }
     }
 
     if (cleanedCount > 0) {
-      console.log(`[Stream] Cleaned ${cleanedCount} expired sessions`);
+      logger.log(`Cleaned ${cleanedCount} expired sessions`);
     }
     if (staleCount > 0) {
-      console.log(`[Stream] Cleaned ${staleCount} stale sessions`);
+      logger.log(`Cleaned ${staleCount} stale sessions`);
     }
   }
 
@@ -736,7 +704,7 @@ export class DingtalkStreamService {
 
       sessionInfo.lastUsedAt = Date.now();
 
-      console.log(`[Stream] Sending card message to ${conversationId.substring(0, 30)}...`);
+      logger.log(`Sending card message to ${conversationId.substring(0, 30)}...`);
 
       await axios.post(sessionInfo.sessionWebhook, cardData, {
         timeout: 10000,
@@ -745,11 +713,10 @@ export class DingtalkStreamService {
       sessionInfo.healthStatus = 'healthy';
       sessionInfo.failureCount = 0;
 
-      console.log('[Stream] Card message sent successfully');
       return true;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Stream] Failed to send card message:', msg);
+      logger.error('Failed to send card message:', msg);
 
       const sessionInfo = this.pendingMessages.get(conversationId);
       if (sessionInfo) {
@@ -759,5 +726,15 @@ export class DingtalkStreamService {
 
       return false;
     }
+  }
+
+  private isUserAllowed(userId: string): boolean {
+    const allowFrom = config.dingtalk.allowFrom;
+    if (allowFrom === '*') return true;
+    const allowedUsers = allowFrom
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    return allowedUsers.includes(userId);
   }
 }

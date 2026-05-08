@@ -10,6 +10,7 @@ export interface CommandDeps {
   sessionManager: SessionManager;
   messageQueue: MessageQueue;
   aiProviderStatus?: { opencode: boolean; claude: boolean };
+  stopSession?: (conversationId: string) => Promise<boolean>;
 }
 
 export class CommandHandler {
@@ -40,6 +41,12 @@ export class CommandHandler {
         return this.handleMode(args);
       case 'history':
         return this.handleHistory(conversationId, args);
+      case 'stop':
+        return this.handleStop(conversationId);
+      case 'list':
+        return this.handleList(userId);
+      case 'switch':
+        return this.handleSwitch(userId, args);
       case 'queue':
         return this.handleQueue();
       case 'config':
@@ -142,6 +149,17 @@ export class CommandHandler {
     return lines.join('\n');
   }
 
+  private async handleStop(conversationId: string): Promise<string> {
+    if (!this.deps.stopSession) {
+      return '❌ 停止功能未配置';
+    }
+    const stopped = await this.deps.stopSession(conversationId);
+    if (stopped) {
+      return '✅ 已终止当前会话的 AI 执行';
+    }
+    return '⚠️ 当前没有正在执行的任务';
+  }
+
   private handleQueue(): string {
     const status = this.deps.messageQueue.getStatus();
     return [
@@ -177,6 +195,46 @@ export class CommandHandler {
   private async handleReset(conversationId: string): Promise<string> {
     await this.deps.sessionManager.endSession(conversationId);
     return '✅ 会话已重置，下次对话将创建新会话';
+  }
+
+  private async handleList(userId: string): Promise<string> {
+    const sessions = await this.deps.sessionManager.getUserSessions(userId);
+
+    if (sessions.length === 0) {
+      return '📋 暂无会话记录';
+    }
+
+    const lines = [`## 📋 你的会话列表\n`];
+    for (const s of sessions.slice(0, 10)) {
+      const stateIcon = s.state === 'active' ? '🟢' : s.state === 'idle' ? '🟡' : '⚪';
+      const ago = Math.round((Date.now() - s.lastActivityAt) / 60000);
+      const msgCount = s.context.metadata.messageCount;
+      lines.push(
+        `${stateIcon} \`${s.conversationId.slice(0, 8)}\` — ${msgCount} 条消息，${ago}min 前活跃`
+      );
+    }
+    lines.push(`\n使用 \`/switch <id前缀>\` 切换会话`);
+    return lines.join('\n');
+  }
+
+  private async handleSwitch(userId: string, args: string[]): Promise<string> {
+    if (args.length === 0) {
+      return '❌ 用法：/switch <会话ID前缀>\n\n使用 /list 查看可用会话';
+    }
+
+    const prefix = args[0];
+    const sessions = await this.deps.sessionManager.getUserSessions(userId);
+    const target = sessions.find(s => s.conversationId.startsWith(prefix));
+
+    if (!target) {
+      return `❌ 未找到以 \`${prefix}\` 开头的会话\n\n使用 /list 查看可用会话`;
+    }
+
+    const switched = await this.deps.sessionManager.switchSession(userId, target.conversationId);
+    if (switched) {
+      return `✅ 已切换到会话 \`${switched.conversationId.slice(0, 8)}\`（${switched.context.metadata.messageCount} 条消息）`;
+    }
+    return '❌ 切换失败，该会话不可用';
   }
 
   private handleRemember(args: string[]): string {

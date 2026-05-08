@@ -21,6 +21,8 @@ export interface SessionPoolConfig {
   maxSessions?: number;
   /** 会话启动超时（毫秒），默认 120 秒 */
   startTimeout?: number;
+  /** 预热会话数（启动时预创建），默认 1 */
+  warmUpCount?: number;
 }
 
 /** 池中会话条目 */
@@ -31,11 +33,14 @@ interface PooledSession {
   createdAt: number;
 }
 
+const WARM_SPARE_PREFIX = '__warm_spare_';
+
 export class SessionPool {
   private sessions: Map<string, PooledSession> = new Map();
   private config: Required<SessionPoolConfig>;
   private sessionConfig: Omit<ClaudeSessionConfig, 'resumeSessionId'>;
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private spareKeys: string[] = [];
 
   constructor(
     sessionConfig: Omit<ClaudeSessionConfig, 'resumeSessionId'>,
@@ -46,6 +51,7 @@ export class SessionPool {
       idleTimeout: poolConfig?.idleTimeout ?? 30 * 60 * 1000,
       maxSessions: poolConfig?.maxSessions ?? 10,
       startTimeout: poolConfig?.startTimeout ?? 120_000,
+      warmUpCount: poolConfig?.warmUpCount ?? 1,
     };
   }
 
@@ -58,7 +64,7 @@ export class SessionPool {
    * 获取或创建会话
    *
    * 如果 conversationId 对应的会话存在且存活，直接返回；
-   * 否则创建新会话（如果池满则先淘汰最久未使用的）。
+   * 否则尝试认领一个预热的 spare 会话；都没有则创建新会话。
    */
   async getOrCreate(conversationId: string, callbacks?: SessionCallbacks): Promise<ClaudeSession> {
     const existing = this.sessions.get(conversationId);
@@ -76,42 +82,19 @@ export class SessionPool {
       this.sessions.delete(conversationId);
     }
 
+    // 尝试认领一个空闲的 warm spare（FIFO，取最老的）
+    const claimed = this.claimSpare(conversationId, callbacks);
+    if (claimed) {
+      return claimed;
+    }
+
     // 池满时淘汰最久未使用的
     if (this.sessions.size >= this.config.maxSessions) {
       await this.evictOldest();
     }
 
     // 创建新会话
-    const session = new ClaudeSession({
-      ...this.sessionConfig,
-      idleTimeout: this.config.idleTimeout,
-    });
-
-    if (callbacks) {
-      session.setCallbacks(callbacks);
-    }
-
-    // 监听状态变更，自动清理已关闭/出错的会话
-    session.setCallbacks({
-      ...callbacks,
-      onStateChange: state => {
-        if (state === 'closed' || state === 'error') {
-          this.sessions.delete(conversationId);
-        }
-        callbacks?.onStateChange?.(state);
-      },
-    });
-
-    await session.start();
-
-    this.sessions.set(conversationId, {
-      session,
-      conversationId,
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
-    });
-
-    return session;
+    return this.createSession(conversationId, callbacks);
   }
 
   /**
@@ -218,7 +201,110 @@ export class SessionPool {
     }));
   }
 
+  /**
+   * 预热会话：在后台预创建指定数量的 spare 会话
+   *
+   * 不阻塞调用方，失败时静默跳过（不影响正常服务）。
+   */
+  async warmUp(count?: number): Promise<void> {
+    const target = count ?? this.config.warmUpCount;
+    if (target <= 0) return;
+
+    const actual = Math.min(target, this.config.maxSessions - this.sessions.size);
+    if (actual <= 0) return;
+
+    console.log(`[SessionPool] 开始预热 ${actual} 个 spare 会话...`);
+
+    const tasks = Array.from({ length: actual }, (_, i) => {
+      const spareKey = `${WARM_SPARE_PREFIX}${Date.now()}_${i}`;
+      return this.createSession(spareKey)
+        .then(() => {
+          this.spareKeys.push(spareKey);
+          console.log(`[SessionPool] spare 会话就绪: ${spareKey}`);
+        })
+        .catch(err => {
+          console.warn(`[SessionPool] spare 预热失败: ${err.message}`);
+        });
+    });
+
+    await Promise.all(tasks);
+    console.log(`[SessionPool] 预热完成，当前 spare 数: ${this.spareKeys.length}`);
+  }
+
   // ==================== 私有方法 ====================
+
+  /** 创建新会话并注册到池中 */
+  private async createSession(
+    conversationId: string,
+    callbacks?: SessionCallbacks
+  ): Promise<ClaudeSession> {
+    const session = new ClaudeSession({
+      ...this.sessionConfig,
+      idleTimeout: this.config.idleTimeout,
+    });
+
+    if (callbacks) {
+      session.setCallbacks(callbacks);
+    }
+
+    session.setCallbacks({
+      ...callbacks,
+      onStateChange: state => {
+        if (state === 'closed' || state === 'error') {
+          this.sessions.delete(conversationId);
+          this.spareKeys = this.spareKeys.filter(k => k !== conversationId);
+        }
+        callbacks?.onStateChange?.(state);
+      },
+    });
+
+    await session.start();
+
+    this.sessions.set(conversationId, {
+      session,
+      conversationId,
+      lastActivity: Date.now(),
+      createdAt: Date.now(),
+    });
+
+    return session;
+  }
+
+  /** 认领一个 warm spare 会话（FIFO），重映射到真实 conversationId */
+  private claimSpare(conversationId: string, callbacks?: SessionCallbacks): ClaudeSession | null {
+    while (this.spareKeys.length > 0) {
+      const spareKey = this.spareKeys.shift()!;
+      const entry = this.sessions.get(spareKey);
+
+      if (!entry || !entry.session.isAlive) {
+        this.sessions.delete(spareKey);
+        continue;
+      }
+
+      // 重映射：从 spare key 移到真实 conversationId
+      this.sessions.delete(spareKey);
+      entry.conversationId = conversationId;
+      entry.lastActivity = Date.now();
+      this.sessions.set(conversationId, entry);
+
+      if (callbacks) {
+        entry.session.setCallbacks({
+          ...callbacks,
+          onStateChange: state => {
+            if (state === 'closed' || state === 'error') {
+              this.sessions.delete(conversationId);
+            }
+            callbacks?.onStateChange?.(state);
+          },
+        });
+      }
+
+      console.log(`[SessionPool] 认领 spare 会话: ${spareKey} → ${conversationId}`);
+      return entry.session;
+    }
+
+    return null;
+  }
 
   /** 淘汰最久未使用的会话 */
   private async evictOldest(): Promise<void> {
@@ -233,31 +319,42 @@ export class SessionPool {
     if (oldest) {
       console.log(`[SessionPool] 淘汰最久未使用的会话: ${oldest.conversationId}`);
       this.sessions.delete(oldest.conversationId);
+      this.spareKeys = this.spareKeys.filter(k => k !== oldest.conversationId);
       await oldest.session.close().catch(err => {
         console.error(`[SessionPool] 淘汰会话关闭失败:`, err);
       });
     }
   }
 
-  /** 清理空闲超时的会话 */
+  /** 清理空闲超时的会话，但保留 warmUpCount 个 spare 作为热备 */
   private cleanupIdle(): void {
     const now = Date.now();
+    let readySpareCount = 0;
 
     for (const [id, entry] of this.sessions) {
-      const idleMs = now - entry.lastActivity;
-
-      // 只清理 ready 状态的空闲会话
-      if (entry.session.currentState === 'ready' && idleMs > this.config.idleTimeout) {
-        console.log(`[SessionPool] 清理空闲会话: ${id} (空闲 ${Math.round(idleMs / 1000)}s)`);
-        this.sessions.delete(id);
-        entry.session.close().catch(err => {
-          console.error(`[SessionPool] 清理会话关闭失败:`, err);
-        });
-      }
-
       // 清理已关闭/出错的会话
       if (entry.session.currentState === 'closed' || entry.session.currentState === 'error') {
         this.sessions.delete(id);
+        this.spareKeys = this.spareKeys.filter(k => k !== id);
+        continue;
+      }
+
+      const idleMs = now - entry.lastActivity;
+      const isSpare = id.startsWith(WARM_SPARE_PREFIX);
+
+      if (entry.session.currentState === 'ready' && idleMs > this.config.idleTimeout) {
+        // spare 会话在配额内保留，不销毁
+        if (isSpare && readySpareCount < this.config.warmUpCount) {
+          readySpareCount++;
+          continue;
+        }
+
+        console.log(`[SessionPool] 清理空闲会话: ${id} (空闲 ${Math.round(idleMs / 1000)}s)`);
+        this.sessions.delete(id);
+        this.spareKeys = this.spareKeys.filter(k => k !== id);
+        entry.session.close().catch(err => {
+          console.error(`[SessionPool] 清理会话关闭失败:`, err);
+        });
       }
     }
   }

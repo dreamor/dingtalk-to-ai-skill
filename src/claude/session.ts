@@ -218,8 +218,8 @@ export class ClaudeSession {
       this.setupReadline();
       this.setupErrorHandling();
 
-      // 等待进程就绪（新版无 system.init，等 hooks 完成或收到首条输出或超时）
-      await this.waitForInit(30_000);
+      // --bare 模式跳过 hooks/plugins/LSP，通常 3-5s 完成初始化
+      await this.waitForInit(15_000);
 
       this.setState('ready');
       this.resetIdleTimer();
@@ -359,8 +359,11 @@ export class ClaudeSession {
       'stream-json',
       '--bare',
       '--verbose',
-      '--dangerously-skip-permissions',
     ];
+
+    if (this.config.permissionMode === 'dangerously-skip-permissions') {
+      args.push('--dangerously-skip-permissions');
+    }
 
     if (this.config.model) {
       args.push('--model', this.config.model);

@@ -30,9 +30,13 @@ jest.mock('../../config', () => ({
     dingtalk: {
       appKey: 'test-key',
       appSecret: 'test-secret',
+      allowFrom: '*',
     },
     stream: {
       enabled: true,
+    },
+    media: {
+      enabled: false,
     },
   },
 }));
@@ -63,7 +67,7 @@ describe('DingtalkStreamService', () => {
       socketCallBackResponse: jest.fn(),
     };
     const MockDWClient = DWClient as unknown as jest.Mock;
-MockDWClient.mockImplementation(() => mockClient);
+    MockDWClient.mockImplementation(() => mockClient);
 
     service = new DingtalkStreamService();
     // 清理构造函数中创建的定时器
@@ -111,9 +115,9 @@ MockDWClient.mockImplementation(() => mockClient);
       await service.start();
 
       // Create a handler that takes time
-      const slowHandler = jest.fn().mockImplementation(() =>
-        new Promise(resolve => setTimeout(resolve, 5000))
-      );
+      const slowHandler = jest
+        .fn()
+        .mockImplementation(() => new Promise(resolve => setTimeout(resolve, 5000)));
       service.setMessageHandler(slowHandler);
 
       const callbackListener = mockClient.registerCallbackListener.mock.calls[0]?.[1];
@@ -183,7 +187,9 @@ MockDWClient.mockImplementation(() => mockClient);
       await expect(callbackListener(mockMsg)).resolves.not.toThrow();
 
       // Should still ACK even on parse error
-      expect(mockClient.socketCallBackResponse).toHaveBeenCalledWith('msg-invalid', { received: true });
+      expect(mockClient.socketCallBackResponse).toHaveBeenCalledWith('msg-invalid', {
+        received: true,
+      });
     });
 
     it('should update heartbeat on message receive', async () => {
