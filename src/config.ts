@@ -49,6 +49,7 @@ export interface ClaudeCodeConfig {
 
 export interface SessionConfig {
   ttl: number;
+  idleResetMs: number;
   maxHistoryMessages: number;
   maxSessions: number;
 }
@@ -250,7 +251,7 @@ export const config = {
     workingDir: process.env.CLAUDE_WORKING_DIR || process.cwd(),
     model: process.env.CLAUDE_MODEL || '',
     maxInputLength: parseEnvNumber('CLAUDE_MAX_INPUT_LENGTH', 10000, 100, 100000),
-    permissionMode: parseEnvString('CLAUDE_PERMISSION_MODE', 'dangerously-skip-permissions', [
+    permissionMode: parseEnvString('CLAUDE_PERMISSION_MODE', 'default', [
       'default',
       'plan',
       'auto-edit',
@@ -260,6 +261,7 @@ export const config = {
 
   session: {
     ttl: parseEnvNumber('SESSION_TTL', 1800000, 60000, 86400000),
+    idleResetMs: parseEnvNumber('SESSION_IDLE_RESET_MINS', 30, 5, 1440) * 60 * 1000,
     maxHistoryMessages: parseEnvNumber('SESSION_MAX_HISTORY', 50, 10, 500),
     maxSessions: parseEnvNumber('SESSION_MAX_SESSIONS', 1000, 100, 10000),
   } as SessionConfig,

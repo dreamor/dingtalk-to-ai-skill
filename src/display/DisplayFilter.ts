@@ -14,6 +14,7 @@ export interface FilteredOutput {
 
 export class DisplayFilter {
   private mode: DisplayMode;
+  private quietBuffer: string = '';
 
   constructor(mode?: DisplayMode) {
     this.mode = mode ?? config.display.mode;
@@ -32,7 +33,25 @@ export class DisplayFilter {
 
   private filterQuiet(message: DisplayMessage): FilteredOutput {
     if (message.type === 'text') {
-      return { shouldSend: false, content: message.content };
+      // 缓冲文本，不立即发送
+      this.quietBuffer += message.content;
+      return { shouldSend: false, content: '' };
+    }
+    // 其他类型静默
+    return { shouldSend: false, content: '' };
+  }
+
+  /**
+   * 刷新缓冲区，返回累积的文本（用于流式结束时一次性发送）
+   */
+  flush(): FilteredOutput {
+    if (this.mode !== 'quiet') {
+      return { shouldSend: false, content: '' };
+    }
+    const content = this.quietBuffer.trim();
+    this.quietBuffer = '';
+    if (content) {
+      return { shouldSend: true, content: content + '\n\n✅ 完成' };
     }
     return { shouldSend: false, content: '' };
   }
@@ -93,7 +112,7 @@ export class DisplayFilter {
   private truncate(text: string, maxLen: number, prefix = ''): string {
     const prefixed = prefix + text;
     if (prefixed.length <= maxLen) return prefixed;
-    return prefixed.slice(0, maxLen - 15) + '...(truncated)';
+    return prefixed.slice(0, Math.max(1, maxLen - 15)) + '...(truncated)';
   }
 
   setMode(mode: DisplayMode): void {

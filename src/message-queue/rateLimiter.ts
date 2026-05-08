@@ -15,14 +15,17 @@ export class RateLimiter {
   private buckets: Map<string, UserBucket> = new Map();
   private maxTokens: number;
   private refillRate: number; // 每秒补充的令牌数
+  private maxEntries: number;
+  private cleanupTimer: NodeJS.Timeout | null = null;
+  private static readonly BUCKET_TTL_MS = 60 * 60 * 1000; // 1 小时未活动的 bucket 自动清理
+  private static readonly CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 每 5 分钟清理一次
 
-  constructor(options?: {
-    maxTokens?: number;
-    refillRate?: number;
-  }) {
-    const { maxTokens = 10, refillRate = 1 } = options ?? {};
+  constructor(options?: { maxTokens?: number; refillRate?: number; maxEntries?: number }) {
+    const { maxTokens = 10, refillRate = 1, maxEntries = 10000 } = options ?? {};
     this.maxTokens = maxTokens;
     this.refillRate = refillRate;
+    this.maxEntries = maxEntries;
+    this.startCleanup();
   }
 
   /**
@@ -79,6 +82,10 @@ export class RateLimiter {
     let bucket = this.buckets.get(userId);
 
     if (!bucket) {
+      // 容量保护：超限时淘汰最旧的 bucket
+      if (this.buckets.size >= this.maxEntries) {
+        this.evictOldest();
+      }
       bucket = {
         tokens: this.maxTokens,
         lastRefill: Date.now(),
@@ -87,6 +94,23 @@ export class RateLimiter {
     }
 
     return bucket;
+  }
+
+  /**
+   * 淘汰最旧的 bucket
+   */
+  private evictOldest(): void {
+    let oldestKey: string | null = null;
+    let oldestTime = Infinity;
+    for (const [key, bucket] of this.buckets) {
+      if (bucket.lastRefill < oldestTime) {
+        oldestTime = bucket.lastRefill;
+        oldestKey = key;
+      }
+    }
+    if (oldestKey !== null) {
+      this.buckets.delete(oldestKey);
+    }
   }
 
   /**
@@ -153,5 +177,36 @@ export class RateLimiter {
    */
   getUserCount(): number {
     return this.buckets.size;
+  }
+
+  /**
+   * 清理过期的 bucket（超过 TTL 未活动）
+   */
+  cleanup(): void {
+    const now = Date.now();
+    for (const [key, bucket] of this.buckets) {
+      if (now - bucket.lastRefill > RateLimiter.BUCKET_TTL_MS) {
+        this.buckets.delete(key);
+      }
+    }
+  }
+
+  /**
+   * 启动定时清理
+   */
+  private startCleanup(): void {
+    this.cleanupTimer = setInterval(() => {
+      this.cleanup();
+    }, RateLimiter.CLEANUP_INTERVAL_MS);
+  }
+
+  /**
+   * 停止定时清理
+   */
+  stopCleanup(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
   }
 }

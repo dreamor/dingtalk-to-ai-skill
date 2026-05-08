@@ -24,11 +24,17 @@ export interface QueuedMessage {
 export class MessageQueue {
   private queue: QueuedMessage[] = [];
   private maxRetries: number;
+  private maxQueueSize: number;
   private enablePersistence: boolean;
   private storage: SQLiteStorage | null = null;
 
-  constructor(options?: { maxRetries?: number; enablePersistence?: boolean }) {
+  constructor(options?: {
+    maxRetries?: number;
+    maxQueueSize?: number;
+    enablePersistence?: boolean;
+  }) {
     this.maxRetries = options?.maxRetries ?? 3;
+    this.maxQueueSize = options?.maxQueueSize ?? 1000;
     this.enablePersistence = options?.enablePersistence ?? config.messageQueue.enablePersistence;
 
     // 如果启用持久化，初始化 SQLite 存储
@@ -89,7 +95,15 @@ export class MessageQueue {
   /**
    * 入队消息
    */
-  enqueue(message: UserMessage, priority: MessagePriority = 'normal'): void {
+  enqueue(message: UserMessage, priority: MessagePriority = 'normal'): boolean {
+    // 队列容量检查
+    if (this.queue.length >= this.maxQueueSize) {
+      console.warn(
+        `[MessageQueue] 队列已满 (${this.queue.length}/${this.maxQueueSize})，拒绝消息：${message.id}`
+      );
+      return false;
+    }
+
     const queued: QueuedMessage = {
       message,
       priority,
@@ -122,6 +136,7 @@ export class MessageQueue {
     }
 
     console.log(`📬 消息入队：${message.id} (优先级：${priority}, 队列长度：${this.queue.length})`);
+    return true;
   }
 
   /**
@@ -370,5 +385,13 @@ export class MessageQueue {
       processing: processingCount,
       byPriority,
     };
+  }
+
+  /**
+   * 销毁队列，释放资源
+   */
+  destroy(): void {
+    this.clear();
+    this.storage = null;
   }
 }

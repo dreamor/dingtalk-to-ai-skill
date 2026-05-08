@@ -61,6 +61,9 @@ export class StreamingCardManager {
   private streams: Map<string, ActiveStream> = new Map();
   private config: StreamingConfig;
   private cardService: AICardService;
+  private cleanupTimer: NodeJS.Timeout | null = null;
+  private static readonly STREAM_TTL_MS = 10 * 60 * 1000; // 10 分钟未活动的 stream 自动清理
+  private static readonly CLEANUP_INTERVAL_MS = 60 * 1000; // 每分钟检查一次
 
   constructor(streamingConfig?: Partial<StreamingConfig>) {
     this.config = {
@@ -72,6 +75,28 @@ export class StreamingCardManager {
       cardTemplateId: streamingConfig?.cardTemplateId ?? config.streaming.cardTemplateId,
     };
     this.cardService = new AICardService();
+    this.startCleanupTimer();
+  }
+
+  /**
+   * 启动定时清理过期 stream
+   */
+  private startCleanupTimer(): void {
+    this.cleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [id, stream] of this.streams) {
+        if (now - stream.lastSentAt > StreamingCardManager.STREAM_TTL_MS && !stream.finished) {
+          logger.warn(
+            `清理过期 stream: ${id} (空闲 ${Math.round((now - stream.lastSentAt) / 60000)}min)`
+          );
+          if (stream.updateTimer) {
+            clearInterval(stream.updateTimer);
+          }
+          stream.finished = true;
+          this.streams.delete(id);
+        }
+      }
+    }, StreamingCardManager.CLEANUP_INTERVAL_MS);
   }
 
   /**
@@ -335,6 +360,17 @@ export class StreamingCardManager {
       }
     }
     this.streams.clear();
+  }
+
+  /**
+   * 销毁管理器，释放所有资源
+   */
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    this.cleanup();
   }
 
   /**

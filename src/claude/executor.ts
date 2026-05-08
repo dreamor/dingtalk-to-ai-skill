@@ -672,6 +672,16 @@ export class ClaudeCodeExecutor {
       console.log('[ClaudeCode] 会话池已关闭');
     }
   }
+
+  /**
+   * 关闭会话池中指定会话（用于 /stop 命令）
+   */
+  async closeSessionPoolSession(conversationId: string): Promise<void> {
+    if (this.sessionPool) {
+      await this.sessionPool.closeSession(conversationId);
+      console.log(`[ClaudeCode] 会话已关闭: ${conversationId}`);
+    }
+  }
 }
 
 /**

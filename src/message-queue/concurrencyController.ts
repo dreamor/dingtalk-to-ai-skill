@@ -9,6 +9,14 @@ interface SlotInfo {
   acquiredAt: number;
 }
 
+interface WaitingEntry {
+  userId: string;
+  requestId: string;
+  resolve: (value: boolean) => void;
+  reject: (error: Error) => void;
+  timerId: NodeJS.Timeout | null;
+}
+
 /**
  * 并发控制器类
  */
@@ -17,21 +25,11 @@ export class ConcurrencyController {
   private activeSlots: Map<string, SlotInfo> = new Map();
   private maxConcurrentPerUser: number;
   private maxConcurrentGlobal: number;
-  private waitingQueue: Array<{
-    userId: string;
-    requestId: string;
-    resolve: (value: boolean) => void;
-    reject: (error: Error) => void;
-  }> = [];
+  private waitingQueue: WaitingEntry[] = [];
+  private destroyed = false;
 
-  constructor(options?: {
-    maxConcurrentPerUser?: number;
-    maxConcurrentGlobal?: number;
-  }) {
-    const {
-      maxConcurrentPerUser = 3,
-      maxConcurrentGlobal = 10,
-    } = options ?? {};
+  constructor(options?: { maxConcurrentPerUser?: number; maxConcurrentGlobal?: number }) {
+    const { maxConcurrentPerUser = 3, maxConcurrentGlobal = 10 } = options ?? {};
 
     this.maxConcurrentPerUser = maxConcurrentPerUser;
     this.maxConcurrentGlobal = maxConcurrentGlobal;
@@ -43,11 +41,7 @@ export class ConcurrencyController {
    * @param requestId 请求ID
    * @param timeout 超时时间（毫秒），默认30秒
    */
-  async acquireSlot(
-    userId: string,
-    requestId: string,
-    timeout: number = 30000
-  ): Promise<boolean> {
+  async acquireSlot(userId: string, requestId: string, timeout: number = 30000): Promise<boolean> {
     // 检查是否可以直接获取
     if (this.canAcquire(userId)) {
       this.doAcquire(userId, requestId);
@@ -56,28 +50,27 @@ export class ConcurrencyController {
 
     // 需要等待
     return new Promise((resolve, reject) => {
-      // 添加到等待队列
-      this.waitingQueue.push({
+      const entry: WaitingEntry = {
         userId,
         requestId,
         resolve,
         reject,
-      });
+        timerId: null,
+      };
 
       // 设置超时
       if (timeout > 0) {
-        setTimeout(() => {
+        entry.timerId = setTimeout(() => {
           // 从等待队列中移除
-          const index = this.waitingQueue.findIndex(item => 
-            item.userId === userId && item.requestId === requestId
-          );
-          
+          const index = this.waitingQueue.indexOf(entry);
           if (index !== -1) {
             this.waitingQueue.splice(index, 1);
-            reject(new Error(`获取并发槽位超时 (${timeout}ms)`));
           }
+          reject(new Error(`获取并发槽位超时 (${timeout}ms)`));
         }, timeout);
       }
+
+      this.waitingQueue.push(entry);
     });
   }
 
@@ -88,10 +81,7 @@ export class ConcurrencyController {
     const userCurrent = this.userSlots.get(userId) ?? 0;
     const globalCurrent = this.activeSlots.size;
 
-    return (
-      userCurrent < this.maxConcurrentPerUser &&
-      globalCurrent < this.maxConcurrentGlobal
-    );
+    return userCurrent < this.maxConcurrentPerUser && globalCurrent < this.maxConcurrentGlobal;
   }
 
   /**
@@ -125,9 +115,7 @@ export class ConcurrencyController {
     // 移除活跃槽位
     this.activeSlots.delete(requestId);
 
-    console.log(
-      `🔓 释放槽位：${requestId} (用户：${userId})`
-    );
+    console.log(`🔓 释放槽位：${requestId} (用户：${userId})`);
 
     // 尝试满足等待队列中的请求
     this.processWaitingQueue();
@@ -142,12 +130,15 @@ export class ConcurrencyController {
     }
 
     // 找到第一个可以处理的请求
-    const index = this.waitingQueue.findIndex((item) =>
-      this.canAcquire(item.userId)
-    );
+    const index = this.waitingQueue.findIndex(item => this.canAcquire(item.userId));
 
     if (index !== -1) {
       const item = this.waitingQueue.splice(index, 1)[0];
+      // 清理超时 timer
+      if (item.timerId !== null) {
+        clearTimeout(item.timerId);
+        item.timerId = null;
+      }
       this.doAcquire(item.userId, item.requestId);
       item.resolve(true);
 
@@ -211,10 +202,22 @@ export class ConcurrencyController {
   clear(): void {
     this.userSlots.clear();
     this.activeSlots.clear();
-    this.waitingQueue.forEach((item) =>
-      item.reject(new Error('Concurrency controller cleared'))
-    );
+    // 清理所有等待中的 timer
+    for (const entry of this.waitingQueue) {
+      if (entry.timerId !== null) {
+        clearTimeout(entry.timerId);
+      }
+      entry.reject(new Error('Concurrency controller cleared'));
+    }
     this.waitingQueue = [];
+  }
+
+  /**
+   * 销毁控制器，释放所有资源
+   */
+  destroy(): void {
+    this.destroyed = true;
+    this.clear();
   }
 
   /**

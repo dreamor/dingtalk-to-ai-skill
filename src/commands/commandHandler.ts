@@ -208,7 +208,7 @@ export class CommandHandler {
     for (const s of sessions.slice(0, 10)) {
       const stateIcon = s.state === 'active' ? '🟢' : s.state === 'idle' ? '🟡' : '⚪';
       const ago = Math.round((Date.now() - s.lastActivityAt) / 60000);
-      const msgCount = s.context.metadata.messageCount;
+      const msgCount = s.context?.metadata?.messageCount ?? 0;
       lines.push(
         `${stateIcon} \`${s.conversationId.slice(0, 8)}\` — ${msgCount} 条消息，${ago}min 前活跃`
       );
@@ -223,6 +223,10 @@ export class CommandHandler {
     }
 
     const prefix = args[0];
+    if (prefix.length < 8) {
+      return '❌ 会话ID前缀至少需要 8 个字符，请使用 /list 查看完整ID';
+    }
+
     const sessions = await this.deps.sessionManager.getUserSessions(userId);
     const target = sessions.find(s => s.conversationId.startsWith(prefix));
 

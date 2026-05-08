@@ -108,10 +108,15 @@ npm run dev            # 开发调试
 | `/help`                   | 显示所有可用命令  |
 | `/status`                 | 显示系统状态      |
 | `/model`                  | 查看/切换 AI 模型 |
-| `/history`                | 显示最近对话历史  |
+| `/mode`                   | 查看/切换权限模式 |
+| `/history [N]`            | 显示最近 N 条对话 |
+| `/stop`                   | 终止当前 AI 执行  |
+| `/list`                   | 列出所有会话      |
+| `/switch <id>`            | 切换到指定会话    |
 | `/queue`                  | 显示消息队列状态  |
+| `/config`                 | 显示当前配置      |
 | `/reset`                  | 重置当前会话      |
-| `/remember <key> <value>` | 保存记忆          |
+| `/remember <key> <value>` | 保存记忆（预留）  |
 
 ## AI Provider 选择
 
@@ -122,7 +127,20 @@ npm run dev            # 开发调试
 
 ## 配置
 
-完整配置说明见 `.env.example`，涵盖：钉钉凭证、AI Provider、会话管理、消息队列、Stream 模式、媒体处理、路由、定时任务、记忆、告警、日志等。
+完整配置说明见 `.env.example`，主要配置项：
+
+| 变量                         | 必填 | 默认值     | 说明                               |
+| ---------------------------- | ---- | ---------- | ---------------------------------- |
+| `DINGTALK_APP_KEY`           | 是   | -          | 钉钉应用 AppKey                    |
+| `DINGTALK_APP_SECRET`        | 是   | -          | 钉钉应用 AppSecret                 |
+| `DINGTALK_ALLOW_FROM`        | 否   | `*`        | 允许的用户ID，逗号分隔             |
+| `AI_PROVIDER`                | 是   | `opencode` | AI 提供者：`opencode` 或 `claude`  |
+| `CLAUDE_PERMISSION_MODE`     | 否   | `default`  | Claude 权限模式                    |
+| `SESSION_TTL`                | 否   | `1800000`  | 会话过期时间（ms）                 |
+| `SESSION_IDLE_RESET_MINS`    | 否   | `30`       | 空闲轮转阈值（分钟）               |
+| `DISPLAY_MODE`               | 否   | `compact`  | 显示模式：`full`/`compact`/`quiet` |
+| `STREAMING_ENABLED`          | 否   | `true`     | 启用流式卡片输出                   |
+| `PERSISTENT_SESSION_ENABLED` | 否   | `true`     | 启用持久化会话                     |
 
 ## API 接口
 

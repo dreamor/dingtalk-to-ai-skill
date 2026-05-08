@@ -124,10 +124,10 @@ export class SessionManager {
   /**
    * 获取或创建会话
    * 空闲超时的会话自动归档为 idle，创建新会话（防上下文漂移）
+   * 过期的会话标记为 expired 并创建新会话
    */
   async getOrCreateSession(userId: string): Promise<Session> {
     const now = Date.now();
-    const idleResetMs = config.session.ttl;
 
     // 查找用户的活跃会话
     const activeSession = Object.values(this.sessions).find(
@@ -144,7 +144,7 @@ export class SessionManager {
       }
 
       // 检查是否空闲轮转（超过 idle reset 阈值，但未过期）
-      if (idleDuration >= idleResetMs) {
+      if (idleDuration >= config.session.idleResetMs) {
         activeSession.state = SessionState.Idle;
         console.log(
           `🔄 会话空闲轮转：${activeSession.conversationId} (空闲 ${Math.round(idleDuration / 60000)}min)`
@@ -178,6 +178,10 @@ export class SessionManager {
     }
 
     if (session.state === SessionState.Idle || session.state === SessionState.Expired) {
+      if (session.state === SessionState.Expired) {
+        console.warn(`⚠️ 切换到已过期会话：${conversationId} (用户：${userId})，上下文可能已过时`);
+      }
+
       // 将当前活跃会话归档
       const currentActive = Object.values(this.sessions).find(
         s => s.userId === userId && s.state === SessionState.Active

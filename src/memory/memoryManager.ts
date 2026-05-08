@@ -2,7 +2,13 @@
  * 记忆管理器 - 高层记忆管理逻辑
  * 负责自动摘要、上下文注入和相关性搜索
  */
-import { MemoryStore, MemoryEntry, MemoryCategory, CreateMemoryInput, MemoryFilter } from './memoryStore';
+import {
+  MemoryStore,
+  MemoryEntry,
+  MemoryCategory,
+  CreateMemoryInput,
+  MemoryFilter,
+} from './memoryStore';
 import { SessionManager } from '../session-manager/sessionManager';
 import { generateMessageId } from '../utils/messageId';
 
@@ -44,7 +50,11 @@ export class MemoryManager {
   /** 跟踪已自动摘要的会话消息数，避免重复摘要 */
   private summarizedCounts: Map<string, number>;
 
-  constructor(store: MemoryStore, sessionManager?: SessionManager, config?: Partial<MemoryManagerConfig>) {
+  constructor(
+    store: MemoryStore,
+    sessionManager?: SessionManager,
+    config?: Partial<MemoryManagerConfig>
+  ) {
     this.store = store;
     this.sessionManager = sessionManager ?? null;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -84,7 +94,16 @@ export class MemoryManager {
   /**
    * 更新记忆
    */
-  updateMemory(id: string, input: { key?: string; value?: string; category?: MemoryCategory; source?: 'auto' | 'manual'; relevanceScore?: number }): MemoryEntry | null {
+  updateMemory(
+    id: string,
+    input: {
+      key?: string;
+      value?: string;
+      category?: MemoryCategory;
+      source?: 'auto' | 'manual';
+      relevanceScore?: number;
+    }
+  ): MemoryEntry | null {
     return this.store.update(id, input);
   }
 
@@ -98,7 +117,11 @@ export class MemoryManager {
   /**
    * 获取统计信息
    */
-  getStats(): { total: number; byCategory: Record<MemoryCategory, number>; bySource: Record<'auto' | 'manual', number> } {
+  getStats(): {
+    total: number;
+    byCategory: Record<MemoryCategory, number>;
+    bySource: Record<'auto' | 'manual', number>;
+  } {
     return this.store.getStats();
   }
 
@@ -106,7 +129,30 @@ export class MemoryManager {
    * 清理过期记忆
    */
   cleanup(): number {
-    return this.store.cleanup(this.config.autoMemoryMaxAge);
+    const removed = this.store.cleanup(this.config.autoMemoryMaxAge);
+    // 同时清理已不存在会话的 summarizedCounts 条目
+    this.cleanupSummarizedCounts();
+    return removed;
+  }
+
+  /**
+   * 清理已不存在会话的 summarizedCounts 条目
+   */
+  private cleanupSummarizedCounts(): void {
+    if (!this.sessionManager) return;
+    this.sessionManager
+      .getAllSessions()
+      .then(sessions => {
+        const activeIds = new Set(sessions.map(s => s.conversationId));
+        for (const key of this.summarizedCounts.keys()) {
+          if (!activeIds.has(key)) {
+            this.summarizedCounts.delete(key);
+          }
+        }
+      })
+      .catch(() => {
+        // 静默失败，不影响主流程
+      });
   }
 
   // ==================== 自动摘要 ====================
@@ -115,7 +161,10 @@ export class MemoryManager {
    * 检查并执行自动摘要
    * 在每次消息处理后调用，当会话消息数达到阈值时提取关键信息
    */
-  async maybeSummarizeConversation(conversationId: string, userId: string): Promise<MemoryEntry | null> {
+  async maybeSummarizeConversation(
+    conversationId: string,
+    userId: string
+  ): Promise<MemoryEntry | null> {
     if (!this.config.autoSummarizeEnabled || !this.sessionManager) {
       return null;
     }
@@ -144,7 +193,9 @@ export class MemoryManager {
     });
 
     this.summarizedCounts.set(conversationId, messageCount);
-    console.log(`[Memory] 自动摘要已生成: conversationId=${conversationId}, messageCount=${messageCount}`);
+    console.log(
+      `[Memory] 自动摘要已生成: conversationId=${conversationId}, messageCount=${messageCount}`
+    );
 
     return entry;
   }
@@ -162,16 +213,38 @@ export class MemoryManager {
 
     // 提取技术栈相关信息
     const techKeywords = [
-      'typescript', 'javascript', 'python', 'go', 'rust', 'java',
-      'react', 'vue', 'angular', 'node', 'express',
-      'docker', 'kubernetes', 'aws', 'azure', 'gcp',
-      'postgresql', 'mysql', 'mongodb', 'redis', 'sqlite',
-      'rest', 'graphql', 'grpc',
+      'typescript',
+      'javascript',
+      'python',
+      'go',
+      'rust',
+      'java',
+      'react',
+      'vue',
+      'angular',
+      'node',
+      'express',
+      'docker',
+      'kubernetes',
+      'aws',
+      'azure',
+      'gcp',
+      'postgresql',
+      'mysql',
+      'mongodb',
+      'redis',
+      'sqlite',
+      'rest',
+      'graphql',
+      'grpc',
     ];
 
     const userMessages = messages.filter(m => m.type === 'user');
     const aiMessages = messages.filter(m => m.type === 'ai');
-    const allContent = messages.map(m => m.content).join(' ').toLowerCase();
+    const allContent = messages
+      .map(m => m.content)
+      .join(' ')
+      .toLowerCase();
 
     // 检测技术栈
     const detectedTechs = techKeywords.filter(tech => allContent.includes(tech));

@@ -8,10 +8,10 @@ import { config } from '../config';
 // 告警配置
 interface AlertConfig {
   enabled: boolean;
-  adminUserId: string;      // 管理员用户ID（接收告警的用户）
+  adminUserId: string; // 管理员用户ID（接收告警的用户）
   adminSessionWebhook: string; // 管理员的 sessionWebhook（动态更新）
-  mentionUsers: string[];    // @ 用户列表
-  mentionAll: boolean;       // @ 所有人
+  mentionUsers: string[]; // @ 用户列表
+  mentionAll: boolean; // @ 所有人
 }
 
 // 从环境变量读取告警配置
@@ -25,15 +25,43 @@ const alertConfig: AlertConfig = {
 
 // 打印告警配置（调试用）
 if (alertConfig.enabled) {
-  console.log(`[Alert] 告警配置: adminUserId=${alertConfig.adminUserId}, mentionAll=${alertConfig.mentionAll}`);
+  console.log(
+    `[Alert] 告警配置: adminUserId=${alertConfig.adminUserId}, mentionAll=${alertConfig.mentionAll}`
+  );
 }
 
 // 待发送的告警队列（当 sessionWebhook 不可用时缓存）
-const pendingAlerts: Array<{ title: string; content: string; level: 'error' | 'warning' | 'info' }> = [];
+const pendingAlerts: Array<{
+  title: string;
+  content: string;
+  level: 'error' | 'warning' | 'info';
+}> = [];
+
+// 告警队列容量上限
+const MAX_PENDING_ALERTS = 100;
+
+/**
+ * 将告警加入待发送队列（带容量保护）
+ */
+function enqueuePendingAlert(alert: {
+  title: string;
+  content: string;
+  level: 'error' | 'warning' | 'info';
+}): void {
+  if (pendingAlerts.length >= MAX_PENDING_ALERTS) {
+    pendingAlerts.shift(); // 丢弃最旧的告警
+    console.warn(`[Alert] 告警队列已满 (${MAX_PENDING_ALERTS})，丢弃最旧的告警`);
+  }
+  pendingAlerts.push(alert);
+}
 
 // Stream 服务引用（在启动时设置）
 let streamService: {
-  sendTextMessage: (conversationId: string, content: string, mentionList?: string[]) => Promise<boolean>;
+  sendTextMessage: (
+    conversationId: string,
+    content: string,
+    mentionList?: string[]
+  ) => Promise<boolean>;
   sendMarkdownMessage: (conversationId: string, title: string, text: string) => Promise<boolean>;
 } | null = null;
 
@@ -43,7 +71,7 @@ let streamService: {
 export function setStreamService(service: typeof streamService): void {
   streamService = service;
   console.log('[Alert] Stream 服务已绑定，告警功能已启用');
-  
+
   // 发送缓存的告警
   if (alertConfig.adminSessionWebhook && pendingAlerts.length > 0) {
     console.log(`[Alert] 发送 ${pendingAlerts.length} 条缓存的告警...`);
@@ -60,10 +88,13 @@ export function setStreamService(service: typeof streamService): void {
  * 更新管理员的 sessionWebhook（收到管理员消息时调用）
  */
 export function updateAdminSessionWebhook(conversationId: string, sessionWebhook: string): void {
-  if (conversationId === alertConfig.adminUserId || conversationId.includes(alertConfig.adminUserId)) {
+  if (
+    conversationId === alertConfig.adminUserId ||
+    conversationId.includes(alertConfig.adminUserId)
+  ) {
     alertConfig.adminSessionWebhook = sessionWebhook;
     console.log('[Alert] 管理员 sessionWebhook 已更新');
-    
+
     // 发送缓存的告警
     if (pendingAlerts.length > 0) {
       console.log(`[Alert] 发送 ${pendingAlerts.length} 条缓存的告警...`);
@@ -99,14 +130,17 @@ export async function sendAlert(
   };
 
   const timestamp = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  
-  const message = `## ${levelEmoji[level]} ${title}\n\n` +
+
+  const message =
+    `## ${levelEmoji[level]} ${title}\n\n` +
     `**时间**: ${timestamp}\n\n` +
     `**级别**: ${level.toUpperCase()}\n\n` +
     `---\n\n` +
     `${content}\n\n` +
     (alertConfig.mentionAll ? '\n@所有人\n' : '') +
-    (alertConfig.mentionUsers.length > 0 ? `\n提醒: ${alertConfig.mentionUsers.map(u => `@${u}`).join(' ')}\n` : '');
+    (alertConfig.mentionUsers.length > 0
+      ? `\n提醒: ${alertConfig.mentionUsers.map(u => `@${u}`).join(' ')}\n`
+      : '');
 
   // 如果告警未启用，只记录日志
   if (!alertConfig.enabled) {
@@ -118,7 +152,7 @@ export async function sendAlert(
   // 如果 Stream 服务未绑定，缓存告警
   if (!streamService) {
     console.log(`[Alert] Stream 服务未绑定，缓存告警: ${title}`);
-    pendingAlerts.push({ title, content, level });
+    enqueuePendingAlert({ title, content, level });
     return false;
   }
 
@@ -126,7 +160,7 @@ export async function sendAlert(
   if (!alertConfig.adminSessionWebhook) {
     console.log(`[Alert] 管理员尚未发送消息，缓存告警: ${title}`);
     console.log(`[Alert] 提示: 管理员发送一条消息后将收到缓存的告警`);
-    pendingAlerts.push({ title, content, level });
+    enqueuePendingAlert({ title, content, level });
     return false;
   }
 
@@ -138,10 +172,11 @@ export async function sendAlert(
     );
     console.log(`[Alert] ✅ 告警发送成功: ${title}`);
     return true;
-  } catch (error: any) {
-    console.error('[Alert] ❌ 发送告警时发生错误:', error.message);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`[Alert] ❌ 发送告警时发生错误: ${msg}`);
     // 发送失败，缓存告警
-    pendingAlerts.push({ title, content, level });
+    enqueuePendingAlert({ title, content, level });
     return false;
   }
 }
@@ -153,9 +188,9 @@ export async function notifyServiceStart(): Promise<void> {
   await sendAlert(
     '钉钉机器人服务启动',
     `**服务模式**: Stream 模式\n` +
-    `**Gateway 端口**: ${config.gateway.port}\n` +
-    `**AI 超时**: ${config.ai.timeout / 1000}秒\n` +
-    `**会话 TTL**: ${config.session.ttl / 1000 / 60}分钟`,
+      `**Gateway 端口**: ${config.gateway.port}\n` +
+      `**AI 超时**: ${config.ai.timeout / 1000}秒\n` +
+      `**会话 TTL**: ${config.session.ttl / 1000 / 60}分钟`,
     'info'
   );
 }
@@ -166,8 +201,7 @@ export async function notifyServiceStart(): Promise<void> {
 export async function notifyServiceStop(reason: string): Promise<void> {
   await sendAlert(
     '钉钉机器人服务停止',
-    `**原因**: ${reason}\n\n` +
-    `服务正在停止，请检查是否需要手动重启。`,
+    `**原因**: ${reason}\n\n` + `服务正在停止，请检查是否需要手动重启。`,
     'warning'
   );
 }
@@ -180,7 +214,8 @@ export async function notifyError(
   errorMessage: string,
   stack?: string
 ): Promise<void> {
-  const content = `**错误类型**: ${errorType}\n\n` +
+  const content =
+    `**错误类型**: ${errorType}\n\n` +
     `**错误信息**: \n\`\`\`\n${errorMessage.substring(0, 500)}\n\`\`\`\n\n` +
     (stack ? `**堆栈信息**:\n\`\`\`\n${stack.substring(0, 500)}...\n\`\`\`\n` : '');
 
@@ -199,4 +234,13 @@ export function isAlertEnabled(): boolean {
  */
 export function getAlertConfig(): AlertConfig {
   return { ...alertConfig };
+}
+
+/**
+ * 清空待发送告警队列
+ */
+export function clearPendingAlerts(): number {
+  const count = pendingAlerts.length;
+  pendingAlerts.length = 0;
+  return count;
 }

@@ -6,6 +6,7 @@
  * - 错误格式化逻辑移至 errorFormatter.ts
  * - 消息重试逻辑移至 retrySender.ts
  * - 队列消费逻辑移至 queueConsumer.ts
+ * - 路由逻辑移至 routes/ 目录
  */
 import express, { Express, Request, Response, NextFunction } from 'express';
 import axios from 'axios';
@@ -41,8 +42,14 @@ import { parseCommand } from '../commands/commandParser';
 import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
 import { ProviderRegistry, MessageRouter } from '../router';
 import type { RoutingRule } from '../router';
-import { MemoryManager, type MemoryCategory, type MemorySource } from '../memory';
+import { MemoryManager } from '../memory';
 import { DisplayFilter } from '../display';
+import {
+  createStatusRoutes,
+  createSchedulerRouter,
+  createRouterRoutes,
+  createMemoryRoutes,
+} from './routes';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -124,6 +131,14 @@ export class GatewayServer {
     this.commandHandler = new CommandHandler({
       sessionManager: deps.sessionManager,
       messageQueue: deps.messageQueue,
+      stopSession: async (conversationId: string) => {
+        try {
+          await this.claudeCodeExecutor.closeSessionPoolSession(conversationId);
+          return true;
+        } catch {
+          return false;
+        }
+      },
     });
 
     const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
@@ -150,7 +165,7 @@ export class GatewayServer {
           await this.dingtalkService.sendTextMessage(accessToken, content, mentionList);
         }
         return true;
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('[Gateway] 发送消息失败:', error);
         return false;
       }
@@ -242,16 +257,19 @@ export class GatewayServer {
   }
 
   private setupRoutes(): void {
-    // 健康检查
-    this.app.get('/health', (_req: Request, res: Response) => {
-      res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        mode: 'stream',
-      });
+    // 状态与诊断路由
+    const statusRoutes = createStatusRoutes({
+      getSessionManager: () => this.sessionManager,
+      getMessageQueue: () => this.messageQueue,
+      getRateLimiter: () => this.rateLimiter,
+      getConcurrencyController: () => this.concurrencyController,
+      getRetrySender: () => this.retrySender,
+      getOpenCodeExecutor: () => this.openCodeExecutor,
+      getClaudeCodeExecutor: () => this.claudeCodeExecutor,
     });
+    this.app.use(statusRoutes);
 
-    // 测试接口
+    // 测试接口（需要注入 processMessage，在此单独注册）
     this.app.post('/api/test', async (req: Request, res: Response) => {
       try {
         const result = await this.processMessage({
@@ -260,98 +278,12 @@ export class GatewayServer {
           userName: '测试用户',
         });
         res.json(result);
-      } catch (error) {
+      } catch (error: unknown) {
         res.status(500).json({
           success: false,
           message: error instanceof Error ? error.message : '未知错误',
         });
       }
-    });
-
-    // 获取会话状态
-    this.app.get('/api/sessions', async (_req: Request, res: Response) => {
-      const stats = await this.sessionManager.getStats();
-      res.json({
-        success: true,
-        data: stats,
-      });
-    });
-
-    // 获取队列状态
-    this.app.get('/api/queue', (_req: Request, res: Response) => {
-      res.json({
-        success: true,
-        data: this.messageQueue.getStatus(),
-      });
-    });
-
-    // 检查 AI Provider 状态
-    this.app.get('/api/status', async (_req: Request, res: Response) => {
-      const [opencodeAvailable, claudeAvailable] = await Promise.all([
-        this.openCodeExecutor.isAvailable(),
-        this.claudeCodeExecutor.isAvailable(),
-      ]);
-      const queueStatus = this.messageQueue.getStatus();
-      const retryQueueStats = this.retrySender.getStats();
-      const rateLimitStatus = {
-        maxTokensPerUser: this.rateLimiter.getMaxTokens(),
-        currentUsers: this.rateLimiter.getUserCount(),
-      };
-      const concurrencyStatus = {
-        maxPerUser: this.concurrencyController.getMaxSlotsPerUser(),
-        maxGlobal: this.concurrencyController.getMaxGlobalSlots(),
-        availablePerUser: this.concurrencyController.getAvailableSlots('testUser'),
-        availableGlobal: this.concurrencyController.getAvailableGlobalSlots(),
-      };
-
-      res.json({
-        success: true,
-        data: {
-          aiProvider: config.aiProvider,
-          opencode: {
-            available: opencodeAvailable,
-            command: config.ai.command,
-            timeout: config.ai.timeout,
-            maxRetries: config.ai.maxRetries,
-          },
-          claude: {
-            available: claudeAvailable,
-            command: config.claude.command,
-            timeout: config.claude.timeout,
-            maxRetries: config.claude.maxRetries,
-          },
-          messageQueue: {
-            pending: queueStatus.queued,
-            processing: queueStatus.processing,
-            byPriority: queueStatus.byPriority,
-          },
-          retryQueue: retryQueueStats,
-          rateLimit: rateLimitStatus,
-          concurrency: concurrencyStatus,
-          persistentSession: {
-            enabled: config.persistentSession.enabled,
-            pool: this.claudeCodeExecutor.getSessionPoolStatus(),
-          },
-        },
-      });
-    });
-
-    // 系统诊断
-    this.app.get('/api/doctor', async (_req: Request, res: Response) => {
-      const { runDoctor } = await import('../utils/doctor');
-      const results = await runDoctor();
-
-      const passCount = results.filter(r => r.status === 'pass').length;
-      const warnCount = results.filter(r => r.status === 'warn').length;
-      const failCount = results.filter(r => r.status === 'fail').length;
-
-      res.json({
-        success: failCount === 0,
-        data: {
-          results,
-          summary: { pass: passCount, warn: warnCount, fail: failCount },
-        },
-      });
     });
 
     // 互动卡片 API
@@ -362,7 +294,7 @@ export class GatewayServer {
         if (!conversationId || !title || !content) {
           res.status(400).json({
             success: false,
-            message: '缺少必要参数：conversationId,  title,  content',
+            message: '缺少必要参数：conversationId, title, content',
           });
           return;
         }
@@ -388,7 +320,7 @@ export class GatewayServer {
           success: sent,
           message: sent ? '卡片发送成功' : '卡片发送失败',
         });
-      } catch (error) {
+      } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error('[Gateway] 发送卡片失败:', msg);
         res.status(500).json({
@@ -398,259 +330,19 @@ export class GatewayServer {
       }
     });
 
-    // 定时任务管理
-    this.app.get('/api/scheduler', (_req: Request, res: Response) => {
-      const scheduler = this.scheduler;
-      if (!scheduler) {
-        res.json({ success: false, message: '调度器未启用' });
-        return;
-      }
-      res.json({ success: true, data: scheduler.getStatus() });
-    });
+    // 定时任务路由
+    this.app.use(createSchedulerRouter(() => this.scheduler));
 
-    this.app.post('/api/scheduler', (req: Request, res: Response) => {
-      const scheduler = this.scheduler;
-      if (!scheduler) {
-        res.json({ success: false, message: '调度器未启用' });
-        return;
-      }
-      const { name, cron, prompt, conversationId, enabled } = req.body;
-      if (!name || !cron || !prompt || !conversationId) {
-        res.json({
-          success: false,
-          message: '缺少必填字段: name,  cron,  prompt,  conversationId',
-        });
-        return;
-      }
-      const task = scheduler.addTask({ name, cron, prompt, conversationId, enabled });
-      res.json({ success: true, task });
-    });
+    // 多 Agent 路由管理
+    this.app.use(
+      createRouterRoutes(
+        () => this.providerRegistry,
+        () => this.router
+      )
+    );
 
-    this.app.delete('/api/scheduler/:id', (req: Request, res: Response) => {
-      const scheduler = this.scheduler;
-      if (!scheduler) {
-        res.json({ success: false, message: '调度器未启用' });
-        return;
-      }
-      const removed = scheduler.removeTask(req.params.id);
-      res.json({ success: removed, message: removed ? '任务已删除' : '任务不存在' });
-    });
-
-    this.app.patch('/api/scheduler/:id/toggle', (req: Request, res: Response) => {
-      const scheduler = this.scheduler;
-      if (!scheduler) {
-        res.json({ success: false, message: '调度器未启用' });
-        return;
-      }
-      const task = scheduler.toggleTask(req.params.id);
-      res.json({
-        success: !!task,
-        task: task,
-        message: task ? `任务已${task.enabled ? '启用' : '停用'}` : '任务不存在',
-      });
-    });
-
-    // 路由器 API
-    this.app.get('/api/router/providers', (_req: Request, res: Response) => {
-      if (!this.providerRegistry) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      res.json({
-        success: true,
-        data: {
-          providers: this.providerRegistry.list(),
-          default: this.providerRegistry.getDefaultName(),
-        },
-      });
-    });
-
-    this.app.post('/api/router/providers', (req: Request, res: Response) => {
-      if (!this.providerRegistry) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      try {
-        const { name, type, command, args, timeout, enabled } = req.body;
-        if (!name || !type || !command) {
-          res.status(400).json({ success: false, message: '缺少必要参数：name,  type,  command' });
-          return;
-        }
-        this.providerRegistry.register({
-          name,
-          type,
-          command,
-          args: args || [],
-          timeout: timeout || 120000,
-          enabled: enabled !== false,
-        });
-        res.json({ success: true, message: `Provider "${name}" 已注册` });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ success: false, message: msg });
-      }
-    });
-
-    this.app.delete('/api/router/providers/:name', (req: Request, res: Response) => {
-      if (!this.providerRegistry) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      const deleted = this.providerRegistry.unregister(req.params.name);
-      res.json({ success: deleted, message: deleted ? 'Provider 已注销' : 'Provider 不存在' });
-    });
-
-    this.app.get('/api/router/rules', (_req: Request, res: Response) => {
-      if (!this.router) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      res.json({ success: true, data: { rules: this.router.listRules() } });
-    });
-
-    this.app.post('/api/router/rules', (req: Request, res: Response) => {
-      if (!this.router) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      try {
-        const { name, enabled, priority, condition, provider } = req.body;
-        if (!name || !condition || !provider) {
-          res
-            .status(400)
-            .json({ success: false, message: '缺少必要参数：name,  condition,  provider' });
-          return;
-        }
-        const rule = this.router.addRule({
-          name,
-          enabled: enabled !== false,
-          priority: priority || 100,
-          condition,
-          provider,
-        });
-        res.json({ success: true, data: { rule } });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ success: false, message: msg });
-      }
-    });
-
-    this.app.delete('/api/router/rules/:id', (req: Request, res: Response) => {
-      if (!this.router) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      const deleted = this.router.removeRule(req.params.id);
-      res.json({ success: deleted, message: deleted ? '规则已删除' : '规则不存在' });
-    });
-
-    this.app.patch('/api/router/rules/:id/toggle', (req: Request, res: Response) => {
-      if (!this.router) {
-        res.status(503).json({ success: false, message: 'Router 未启用' });
-        return;
-      }
-      const rule = this.router.toggleRule(req.params.id);
-      if (rule) {
-        res.json({ success: true, data: { rule } });
-      } else {
-        res.status(404).json({ success: false, message: '规则不存在' });
-      }
-    });
-
-    // 项目记忆 API
-    this.app.get('/api/memory/stats', (_req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const stats = this.memoryManager.getStats();
-      res.json({ success: true, data: { stats } });
-    });
-
-    this.app.get('/api/memory/entries', (req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const { category, source, query, limit, offset } = req.query as Record<string, string>;
-      const filter: {
-        category?: MemoryCategory;
-        source?: MemorySource;
-        query?: string;
-        limit?: number;
-        offset?: number;
-      } = {};
-      if (category) filter.category = category as MemoryCategory;
-      if (source) filter.source = source as MemorySource;
-      if (query) filter.query = query;
-      if (limit) filter.limit = parseInt(limit, 10);
-      if (offset) filter.offset = parseInt(offset, 10);
-      const entries = this.memoryManager.searchMemories(filter);
-      res.json({ success: true, data: { entries } });
-    });
-
-    this.app.post('/api/memory/entries', (req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const { key, value, category, source, relevanceScore } = req.body;
-      if (!key || !value || !category) {
-        res.status(400).json({ success: false, message: '缺少必要参数：key,  value,  category' });
-        return;
-      }
-      try {
-        const entry = this.memoryManager.createMemory({
-          key,
-          value,
-          category,
-          source: source ?? 'manual',
-          relevanceScore,
-        });
-        res.json({ success: true, data: { entry } });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        res.status(400).json({ success: false, message: msg });
-      }
-    });
-
-    this.app.patch('/api/memory/entries/:id', (req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const { key, value, category, source, relevanceScore } = req.body;
-      const updated = this.memoryManager.updateMemory(req.params.id, {
-        key,
-        value,
-        category,
-        source,
-        relevanceScore,
-      });
-      if (updated) {
-        res.json({ success: true, data: { updated } });
-      } else {
-        res.status(404).json({ success: false, message: '记忆条目不存在' });
-      }
-    });
-
-    this.app.delete('/api/memory/entries/:id', (req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const deleted = this.memoryManager.deleteMemory(req.params.id);
-      res.json({ success: deleted, message: deleted ? '记忆已删除' : '记忆条目不存在' });
-    });
-
-    this.app.post('/api/memory/cleanup', (_req: Request, res: Response) => {
-      if (!this.memoryManager) {
-        res.status(503).json({ success: false, message: '记忆模块未启用' });
-        return;
-      }
-      const removed = this.memoryManager.cleanup();
-      res.json({ success: true, data: { removed } });
-    });
+    // 项目记忆路由
+    this.app.use(createMemoryRoutes(() => this.memoryManager));
   }
 
   /**
@@ -690,7 +382,7 @@ export class GatewayServer {
             messageId: userMessage.id,
           },
         };
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('[Gateway] 入队消息失败:', error);
         return {
           success: false,
@@ -784,7 +476,7 @@ export class GatewayServer {
             return;
           }
         }
-      } catch (error) {
+      } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
         console.error(`[Gateway] 第 ${attempt} 次处理失败:`, lastError.message);
 
@@ -922,7 +614,7 @@ export class GatewayServer {
         });
         this.messageQueue.complete(message.id);
         console.log(`[Gateway] 队列消息处理完成: ${message.id}`);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error(`[Gateway] 处理队列消息失败: ${message.id}`, error);
         this.messageQueue.fail(message.id);
 
@@ -952,7 +644,7 @@ export class GatewayServer {
           message: '命令处理完成',
           data: { result: response },
         };
-      } catch (error) {
+      } catch (error: unknown) {
         return {
           success: false,
           message: error instanceof Error ? error.message : '命令处理失败',
@@ -999,7 +691,7 @@ export class GatewayServer {
     try {
       session = await this.sessionManager.getOrCreateSession(userId);
       console.log(`[${messageId}] 步骤 3-4: 验证通过，会话已获取 ${session.conversationId}`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[${messageId}] 创建会话失败:`, error);
       return {
         success: false,
@@ -1012,7 +704,7 @@ export class GatewayServer {
     try {
       await this.concurrencyController.acquireSlot(userId, requestId, 30000);
       console.log(`[${messageId}] 步骤 5: 并发控制通过`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[${messageId}] 获取并发槽位失败:`, error);
       return {
         success: false,
@@ -1122,20 +814,16 @@ export class GatewayServer {
           userId || ''
         );
 
-        try {
-          const displayFilter = new DisplayFilter();
+        const displayFilter = new DisplayFilter();
 
+        try {
           if (usePersistentSession) {
             // 持久化会话模式（消除冷启动）+ Display Filter
+            // 注意：streamCallbacks 已包含 onText，不需要额外的 onChunk 回调
             result = await this.claudeCodeExecutor.executeSession(
               session.conversationId,
               msg,
-              async chunk => {
-                const filtered = displayFilter.filter({ type: 'text', content: chunk });
-                if (filtered.shouldSend && filtered.content) {
-                  await streamHandle.appendChunk(filtered.content);
-                }
-              },
+              undefined,
               opencodeContext,
               {
                 onText: async (text: string) => {
@@ -1182,7 +870,7 @@ export class GatewayServer {
               opencodeContext
             );
           }
-        } catch (error) {
+        } catch (error: unknown) {
           // AI 执行失败，记录错误并使用已积累的内容完成卡片
           console.error(`[${messageId}] 流式 AI 执行失败:`, error);
           const accumulatedText = streamHandle.getFullText() || 'AI 处理失败，请稍后重试';
@@ -1195,6 +883,11 @@ export class GatewayServer {
         }
 
         // AI 执行成功，完成卡片
+        // 先刷新 DisplayFilter 缓冲区（quiet 模式下累积的文本）
+        const flushed = displayFilter.flush();
+        if (flushed.shouldSend && flushed.content) {
+          await streamHandle.appendChunk(flushed.content);
+        }
         const finalText = result?.output || streamHandle.getFullText() || '处理完成';
         await streamHandle.finish(finalText);
       } else {
@@ -1279,5 +972,44 @@ export class GatewayServer {
     conversationId: string
   ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
     return buildHistory(this.sessionManager, conversationId, 20);
+  }
+
+  /**
+   * 销毁 Gateway，释放所有资源
+   */
+  destroy(): void {
+    console.log('[Gateway] 正在销毁，释放资源...');
+
+    // 停止队列消费
+    if (this.consumerTimer) {
+      clearInterval(this.consumerTimer);
+      this.consumerTimer = null;
+    }
+    this.consumerRunning = false;
+
+    // 停止重试发送器
+    this.retrySender.stop();
+
+    // 销毁并发控制器
+    this.concurrencyController.destroy();
+
+    // 停止限流器清理
+    this.rateLimiter.stopCleanup();
+
+    // 销毁消息队列
+    this.messageQueue.destroy();
+
+    // 销毁流式卡片管理器
+    if (this.streamingCardManager) {
+      this.streamingCardManager.destroy();
+    }
+
+    // 关闭 HTTP 服务器
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+
+    console.log('[Gateway] 资源已释放');
   }
 }

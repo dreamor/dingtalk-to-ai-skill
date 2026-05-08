@@ -243,10 +243,6 @@ export class SessionPool {
       idleTimeout: this.config.idleTimeout,
     });
 
-    if (callbacks) {
-      session.setCallbacks(callbacks);
-    }
-
     session.setCallbacks({
       ...callbacks,
       onStateChange: state => {

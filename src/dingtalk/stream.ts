@@ -735,6 +735,10 @@ export class DingtalkStreamService {
       .split(',')
       .map(s => s.trim())
       .filter(Boolean);
+    if (allowedUsers.length === 0) {
+      console.warn('[DingtalkStream] DINGTALK_ALLOW_FROM 非通配符但解析后为空列表，将允许所有用户');
+      return true;
+    }
     return allowedUsers.includes(userId);
   }
 }

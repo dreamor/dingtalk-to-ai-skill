@@ -175,7 +175,7 @@ export class QueueConsumer {
 
       this.queue.complete(message.id);
       console.log(`[QueueConsumer] 消息处理完成: ${message.id}`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[QueueConsumer] 消息处理失败: ${message.id}`, error);
       this.queue.fail(message.id);
 
@@ -217,7 +217,7 @@ export class QueueConsumer {
     let session;
     try {
       session = await this.sessionManager.getOrCreateSession(message.userId);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[QueueConsumer] 创建会话失败:`, error);
       return {
         success: false,
@@ -229,7 +229,7 @@ export class QueueConsumer {
     const requestId = generateMessageId();
     try {
       await this.concurrencyController.acquireSlot(message.userId, requestId, 30000);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`[QueueConsumer] 获取并发槽位失败:`, error);
       return {
         success: false,
