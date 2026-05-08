@@ -12,6 +12,9 @@ import { randomUUID } from 'crypto';
 import { config } from '../config';
 import type { StreamingConfig } from '../config';
 import { AICardService, type AICardInstance } from './aiCardService';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('StreamingCard');
 
 /** 活跃的流式会话 */
 interface ActiveStream {
@@ -97,21 +100,21 @@ export class StreamingCardManager {
 
     if (this.config.enabled) {
       try {
-        console.log(`[StreamingCard] 尝试创建 AI Card: ${conversationId.substring(0, 30)}...`);
+        logger.log(`尝试创建 AI Card: ${conversationId.substring(0, 30)}...`);
         card = await this.cardService.createCard(conversationId, senderType, userId);
 
         if (!card) {
-          console.warn('[StreamingCard] AI Card 创建失败，使用降级模式');
+          logger.warn('AI Card 创建失败，使用降级模式');
           useDegraded = true;
         } else {
-          console.log(`[StreamingCard] AI Card 创建成功：${card.cardInstanceId}`);
+          logger.log(`AI Card 创建成功：${card.cardInstanceId}`);
         }
       } catch (err) {
-        console.error('[StreamingCard] AI Card 创建异常，使用降级模式:', err);
+        logger.error('AI Card 创建异常，使用降级模式:', err);
         useDegraded = true;
       }
     } else {
-      console.log('[StreamingCard] 流式未启用，使用降级模式');
+      logger.log('流式未启用，使用降级模式');
       useDegraded = true;
     }
 
@@ -175,9 +178,9 @@ export class StreamingCardManager {
           try {
             await this.typewriterFlush(stream);
             await this.cardService.finish(stream.card, stream.fullText || '（无内容）');
-            console.log(`[StreamingCard] AI Card 完成：${stream.outTrackId}`);
+            logger.log(`AI Card 完成：${stream.outTrackId}`);
           } catch (error) {
-            console.error('[StreamingCard] AI Card 完成失败，尝试降级:', error);
+            logger.error('AI Card 完成失败，尝试降级:', error);
             await this.sendFallback(stream, sendMarkdownFn, sendTextFn);
           }
         } else {
@@ -207,11 +210,11 @@ export class StreamingCardManager {
       try {
         const sent = await sendMarkdownFn(stream.conversationId, title, text);
         if (sent) {
-          console.log(`[StreamingCard] 降级 markdown 已发送：${stream.outTrackId}`);
+          logger.log(`降级 markdown 已发送：${stream.outTrackId}`);
           return;
         }
       } catch (error) {
-        console.error('[StreamingCard] 降级 markdown 发送失败:', error);
+        logger.error('降级 markdown 发送失败:', error);
       }
     }
 
@@ -225,16 +228,16 @@ export class StreamingCardManager {
         },
         { timeout: 10000 }
       );
-      console.log(`[StreamingCard] 降级 markdown 已发送（兜底）: ${stream.outTrackId}`);
+      logger.log(`降级 markdown 已发送（兜底）: ${stream.outTrackId}`);
     } catch (error) {
-      console.error('[StreamingCard] 兜底发送失败:', error);
+      logger.error('兜底发送失败:', error);
 
       // 最后尝试发文本
       if (sendTextFn) {
         try {
           await sendTextFn(stream.conversationId, text.substring(0, 2000));
         } catch (e) {
-          console.error('[StreamingCard] 文本发送也失败，彻底放弃:', e);
+          logger.error('文本发送也失败，彻底放弃:', e);
         }
       }
     }
@@ -265,7 +268,7 @@ export class StreamingCardManager {
       try {
         await this.cardService.streamUpdate(stream.card, partial, false);
       } catch (error) {
-        console.error('[StreamingCard] 打字机推送失败，跳过:', error);
+        logger.error('打字机推送失败，跳过:', error);
         break;
       }
 
@@ -280,6 +283,7 @@ export class StreamingCardManager {
 
   /**
    * 启动定时刷新器 — 每 300ms 将累积文本推送到 AI Card 或降级通道
+   * 改进：每次只推送一小段新文本（打字机效果），而不是全部
    */
   private startFlushTimer(
     stream: ActiveStream,
@@ -291,23 +295,30 @@ export class StreamingCardManager {
       const currentText = stream.fullText;
       if (currentText.length <= stream.lastSentText.length) return;
 
+      // 打字机效果：每次只推送一小段新文本（20 字符）
+      const nextCursor = Math.min(
+        stream.lastSentText.length + StreamingCardManager.TYPEWRITER_CHUNK_SIZE,
+        currentText.length
+      );
+      const partialText = currentText.slice(0, nextCursor);
+
       if (!stream.degraded && stream.card) {
         try {
-          await this.cardService.streamUpdate(stream.card, currentText, false);
-          stream.lastSentText = currentText;
+          await this.cardService.streamUpdate(stream.card, partialText, false);
+          stream.lastSentText = partialText;
           stream.lastSentAt = Date.now();
         } catch (error) {
-          console.error('[StreamingCard] 流式更新失败:', error);
+          logger.error('流式更新失败:', error);
           stream.failureCount++;
           if (stream.failureCount >= 3) {
-            console.warn('[StreamingCard] 连续失败 3 次，降级到 sessionWebhook 模式');
+            logger.warn('连续失败 3 次，降级到 sessionWebhook 模式');
             stream.degraded = true;
           }
         }
       } else if (sendMarkdownFn) {
-        const sent = await sendMarkdownFn(stream.conversationId, 'AI 回复', currentText);
+        const sent = await sendMarkdownFn(stream.conversationId, 'AI 回复', partialText);
         if (sent) {
-          stream.lastSentText = currentText;
+          stream.lastSentText = partialText;
           stream.lastSentAt = Date.now();
         }
       }

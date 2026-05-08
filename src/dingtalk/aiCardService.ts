@@ -9,7 +9,9 @@
  */
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
-import type { DingtalkConfig } from '../config';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('AICard');
 
 /** AI Card 实例 */
 export interface AICardInstance {
@@ -224,7 +226,7 @@ export class AICardService {
       const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const cardTemplateId = config.streaming.cardTemplateId || DEFAULT_CARD_TEMPLATE_ID;
 
-      console.log(`[AICard] 开始创建并投放卡片：${targetDesc}, outTrackId=${cardInstanceId}`);
+      logger.log(`开始创建并投放卡片：${targetDesc}, outTrackId=${cardInstanceId}`);
 
       const body = buildCreateAndDeliverBody(
         cardInstanceId,
@@ -240,7 +242,7 @@ export class AICardService {
         },
       });
 
-      console.log(`[AICard] 卡片创建并投放成功：${cardInstanceId}`);
+      logger.log(`卡片创建并投放成功：${cardInstanceId}`);
 
       return {
         cardInstanceId,
@@ -253,16 +255,16 @@ export class AICardService {
       };
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[AICard] 创建卡片失败 (${targetDesc}): ${errorMessage}`);
+      logger.error(`创建卡片失败 (${targetDesc}): ${errorMessage}`);
 
       const axiosErr = err as AxiosError;
       if (axiosErr.response) {
         const responseData = axiosErr.response.data as { code?: string; message?: string };
-        console.error(
-          `[AICard] 错误响应：status=${axiosErr.response?.status}, code=${responseData.code}, message=${JSON.stringify(responseData.message)}`
+        logger.error(
+          `错误响应：status=${axiosErr.response?.status}, code=${responseData.code}, message=${JSON.stringify(responseData.message)}`
         );
       } else if (axiosErr.request) {
-        console.error(`[AICard] 网络错误：无法连接到钉钉 API`);
+        logger.error(`网络错误：无法连接到钉钉 API`);
       }
 
       return null;
@@ -282,7 +284,7 @@ export class AICardService {
     finished: boolean = false
   ): Promise<void> {
     if (!card) {
-      console.warn('[AICard] streamUpdate 收到 null card，跳过更新');
+      logger.warn('streamUpdate 收到 null card，跳过更新');
       return;
     }
 
@@ -326,8 +328,8 @@ export class AICardService {
         isError: false,
       };
 
-      console.log(
-        `[AICard] 流式更新：contentLen=${content.length}, isFinalize=${finished}, outTrackId=${card.cardInstanceId}`
+      logger.log(
+        `流式更新：contentLen=${content.length}, isFinalize=${finished}, outTrackId=${card.cardInstanceId}`
       );
 
       const response = await axios.put(`${DINGTALK_API}/v1.0/card/streaming`, body, {
@@ -336,24 +338,22 @@ export class AICardService {
           'Content-Type': 'application/json',
         },
       });
-      console.log(
-        `[AICard] 流式更新响应：status=${response.status}, data=${JSON.stringify(response.data)}`
-      );
+      logger.log(`流式更新响应：status=${response.status}, data=${JSON.stringify(response.data)}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[AICard] 流式更新失败：${errorMessage}`);
+      logger.error(`流式更新失败：${errorMessage}`);
 
       if (isQpsLimitError(err)) {
-        console.warn('[AICard] 触发 QPS 限流，退避 2 秒后重试...');
+        logger.warn('触发 QPS 限流，退避 2 秒后重试...');
         await sleep(2000);
         try {
           await this.streamUpdate(card, content, finished);
-          console.log('[AICard] QPS 限流重试成功');
+          logger.log('QPS 限流重试成功');
         } catch (retryErr) {
-          console.error('[AICard] QPS 限流重试失败，跳过本次更新');
+          logger.error('QPS 限流重试失败，跳过本次更新');
         }
       } else {
-        console.error(`[AICard] 非 QPS 错误，跳过本次更新：${errorMessage}`);
+        logger.error(`非 QPS 错误，跳过本次更新：${errorMessage}`);
       }
     }
   }
@@ -366,7 +366,7 @@ export class AICardService {
    */
   async finish(card: AICardInstance, finalContent: string): Promise<void> {
     if (!card) {
-      console.warn('[AICard] finish 收到 null card，跳过');
+      logger.warn('finish 收到 null card，跳过');
       return;
     }
 
@@ -375,8 +375,8 @@ export class AICardService {
 
       const fixedContent = ensureTableBlankLines(finalContent);
 
-      console.log(
-        `[AICard] 开始 finish：最终内容长度=${fixedContent.length}, outTrackId=${card.cardInstanceId}`
+      logger.log(
+        `开始 finish：最终内容长度=${fixedContent.length}, outTrackId=${card.cardInstanceId}`
       );
 
       // 1. 先发送最终内容（isFinalize=true）
@@ -404,15 +404,15 @@ export class AICardService {
         'FINISHED'
       );
 
-      console.log(`[AICard] 卡片完成：${card.cardInstanceId}`);
+      logger.log(`卡片完成：${card.cardInstanceId}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[AICard] 完成卡片失败：${errorMessage}`);
+      logger.error(`完成卡片失败：${errorMessage}`);
 
       const axiosErr = err as AxiosError;
       if (axiosErr.response) {
-        console.error(
-          `[AICard] 完成失败详情：status=${axiosErr.response?.status}, data=${JSON.stringify(axiosErr.response.data)}`
+        logger.error(
+          `完成失败详情：status=${axiosErr.response?.status}, data=${JSON.stringify(axiosErr.response.data)}`
         );
       }
 
@@ -443,16 +443,16 @@ export class AICardService {
       await doPut();
     } catch (err) {
       if (isQpsLimitError(err)) {
-        console.warn(`[AICard] ${operation} 触发 QPS 限流，退避 2 秒后重试...`);
+        logger.warn(`${operation} 触发 QPS 限流，退避 2 秒后重试...`);
         await sleep(2000);
 
         for (let i = 0; i < maxRetries; i++) {
           try {
             await doPut();
-            console.log(`[AICard] ${operation} 重试成功`);
+            logger.log(`${operation} 重试成功`);
             return;
           } catch (retryErr) {
-            console.error(`[AICard] ${operation} 重试失败 (${i + 1}/${maxRetries})`);
+            logger.error(`${operation} 重试失败 (${i + 1}/${maxRetries})`);
           }
         }
       }
