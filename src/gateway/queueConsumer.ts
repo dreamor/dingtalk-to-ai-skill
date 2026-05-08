@@ -111,7 +111,8 @@ export class QueueConsumer {
     console.log(`  - 轮询间隔: ${this.config.pollInterval}ms`);
     console.log(`  - 批处理大小: ${this.config.batchSize}`);
 
-    this.consumeLoop();
+    this.timer = setTimeout(() => this.consumeLoop(), 0);
+    this.timer.unref();
   }
 
   /**
@@ -139,6 +140,7 @@ export class QueueConsumer {
       .finally(() => {
         if (this.isRunning) {
           this.timer = setTimeout(() => this.consumeLoop(), this.config.pollInterval);
+          this.timer.unref();
         }
       });
   }
@@ -243,12 +245,14 @@ export class QueueConsumer {
       await this.sessionManager.addMessage(session.conversationId, message);
 
       // 触发消息接收钩子
-      hookRunner.trigger('message_received' as HookEvent, {
-        userId: message.userId,
-        userName: message.username,
-        conversationId: session.conversationId,
-        content: message.content.substring(0, 200),
-      }).catch(() => {});
+      hookRunner
+        .trigger('message_received' as HookEvent, {
+          userId: message.userId,
+          userName: message.username,
+          conversationId: session.conversationId,
+          content: message.content.substring(0, 200),
+        })
+        .catch(() => {});
 
       // 6. 获取对话历史
       const history = await this.buildHistory(session.conversationId);

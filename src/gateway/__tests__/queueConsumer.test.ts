@@ -54,6 +54,7 @@ describe('QueueConsumer', () => {
   });
 
   afterEach(() => {
+    consumer.stop();
     jest.restoreAllMocks();
   });
 

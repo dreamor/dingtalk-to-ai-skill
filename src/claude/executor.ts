@@ -569,11 +569,21 @@ export class ClaudeCodeExecutor {
         model: this.config.model,
         permissionMode: config.claude.permissionMode,
       },
-      poolConfig
+      {
+        ...poolConfig,
+        warmUpCount: config.persistentSession.warmUpSessions,
+      }
     );
 
     this.sessionPool.startCleanup();
     console.log('[ClaudeCode] 会话池已初始化');
+
+    const warmCount = config.persistentSession.warmUpSessions;
+    if (warmCount > 0) {
+      this.sessionPool.warmUp(warmCount).catch(err => {
+        console.warn('[ClaudeCode] 预热失败:', err.message);
+      });
+    }
   }
 
   /**

@@ -158,6 +158,7 @@ export interface PersistentSessionConfig {
   enabled: boolean; // 是否启用持久化会话（消除冷启动）
   maxSessions: number; // 最大会话数，默认 10
   idleTimeout: number; // 空闲超时（毫秒），默认 30 分钟
+  warmUpSessions: number; // 启动时预热会话数，默认 1（0 禁用预热）
 }
 
 // ==================== 配置验证错误 ====================
@@ -368,6 +369,7 @@ export const config = {
     enabled: process.env.PERSISTENT_SESSION_ENABLED !== 'false',
     maxSessions: parseEnvNumber('PERSISTENT_SESSION_MAX_SESSIONS', 10, 1, 100),
     idleTimeout: parseEnvNumber('PERSISTENT_SESSION_IDLE_TIMEOUT', 1800000, 60000, 86400000),
+    warmUpSessions: parseEnvNumber('PERSISTENT_SESSION_WARM_UP', 1, 0, 5),
   } as PersistentSessionConfig,
 };
 
@@ -447,7 +449,7 @@ export function validateConfig(): void {
   console.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
   console.log(`   - 流式输出: ${config.streaming.enabled ? '启用' : '禁用'}`);
   console.log(
-    `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
+    `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 预热 ${config.persistentSession.warmUpSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
   );
 }
 
