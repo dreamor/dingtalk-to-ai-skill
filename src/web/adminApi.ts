@@ -4,7 +4,6 @@
  */
 import { Router, Request, Response } from 'express';
 import { agentRegistry } from '../agents';
-import { platformRegistry } from '../platforms';
 import { hookRunner } from '../hooks';
 import type { ApiResponse } from './types';
 
@@ -33,21 +32,10 @@ export function createAdminRouter(): Router {
     if (success) {
       res.json({ success: true, message: `默认 Agent 已设为 ${req.params.name}` } as ApiResponse);
     } else {
-      res.status(404).json({ success: false, message: `Agent "${req.params.name}" 不存在` } as ApiResponse);
+      res
+        .status(404)
+        .json({ success: false, message: `Agent "${req.params.name}" 不存在` } as ApiResponse);
     }
-  });
-
-  // ===== 平台管理 =====
-
-  /** 列出所有平台 */
-  router.get('/api/admin/platforms', (_req: Request, res: Response) => {
-    res.json({
-      success: true,
-      data: {
-        platforms: platformRegistry.list(),
-        count: platformRegistry.size,
-      },
-    } as ApiResponse);
   });
 
   // ===== Hooks 管理 =====
@@ -68,7 +56,9 @@ export function createAdminRouter(): Router {
     if (success) {
       res.json({ success: true, message: `钩子 ${req.params.id} 状态已切换` } as ApiResponse);
     } else {
-      res.status(404).json({ success: false, message: `钩子 "${req.params.id}" 不存在` } as ApiResponse);
+      res
+        .status(404)
+        .json({ success: false, message: `钩子 "${req.params.id}" 不存在` } as ApiResponse);
     }
   });
 
@@ -91,7 +81,6 @@ export function createAdminRouter(): Router {
       success: true,
       data: {
         agents: agentRegistry.size,
-        platforms: platformRegistry.size,
         hooks: hookRunner.list().length,
       },
     } as ApiResponse);

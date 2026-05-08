@@ -42,6 +42,7 @@ import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
 import { ProviderRegistry, MessageRouter } from '../router';
 import type { RoutingRule } from '../router';
 import { MemoryManager, type MemoryCategory, type MemorySource } from '../memory';
+import { DisplayFilter } from '../display';
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -1122,21 +1123,53 @@ export class GatewayServer {
         );
 
         try {
+          const displayFilter = new DisplayFilter();
+
           if (usePersistentSession) {
-            // 持久化会话模式（消除冷启动）
+            // 持久化会话模式（消除冷启动）+ Display Filter
             result = await this.claudeCodeExecutor.executeSession(
               session.conversationId,
               msg,
               async chunk => {
-                await streamHandle.appendChunk(chunk);
+                const filtered = displayFilter.filter({ type: 'text', content: chunk });
+                if (filtered.shouldSend && filtered.content) {
+                  await streamHandle.appendChunk(filtered.content);
+                }
               },
-              opencodeContext
+              opencodeContext,
+              {
+                onText: async (text: string) => {
+                  const filtered = displayFilter.filter({ type: 'text', content: text });
+                  if (filtered.shouldSend && filtered.content) {
+                    await streamHandle.appendChunk(filtered.content);
+                  }
+                },
+                onThinking: async (text: string) => {
+                  const filtered = displayFilter.filter({ type: 'thinking', content: text });
+                  if (filtered.shouldSend && filtered.content) {
+                    await streamHandle.appendChunk(filtered.content);
+                  }
+                },
+                onToolUse: async (name: string, input: Record<string, unknown>) => {
+                  const filtered = displayFilter.filter({
+                    type: 'tool_use',
+                    content: JSON.stringify(input).substring(0, 200),
+                    toolName: name,
+                  });
+                  if (filtered.shouldSend && filtered.content) {
+                    await streamHandle.appendChunk(filtered.content);
+                  }
+                },
+              }
             );
           } else if (config.aiProvider === 'claude') {
             result = await this.claudeCodeExecutor.executeStream(
               msg,
               async chunk => {
-                await streamHandle.appendChunk(chunk);
+                const filtered = displayFilter.filter({ type: 'text', content: chunk });
+                if (filtered.shouldSend && filtered.content) {
+                  await streamHandle.appendChunk(filtered.content);
+                }
               },
               opencodeContext
             );

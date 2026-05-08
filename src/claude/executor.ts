@@ -288,7 +288,10 @@ export class ClaudeCodeExecutor {
    * --model: 指定模型，覆盖 settings.json 中的默认值
    */
   private buildCommandArgs(prompt: string): string[] {
-    const args = ['-p', '--output-format=text', '--bare', '--dangerously-skip-permissions'];
+    const args = ['-p', '--output-format=text', '--bare'];
+    if (config.claude.permissionMode === 'dangerously-skip-permissions') {
+      args.push('--dangerously-skip-permissions');
+    }
 
     if (this.config.model) {
       args.push('--model', this.config.model);
@@ -564,7 +567,7 @@ export class ClaudeCodeExecutor {
         command: this.config.command,
         workingDir: this.config.workingDir,
         model: this.config.model,
-        permissionMode: 'dangerously-skip-permissions',
+        permissionMode: config.claude.permissionMode,
       },
       poolConfig
     );
@@ -584,7 +587,8 @@ export class ClaudeCodeExecutor {
     conversationId: string,
     prompt: string,
     onChunk?: (chunk: string) => void,
-    context?: MessageContext
+    context?: MessageContext,
+    streamCallbacks?: SessionCallbacks
   ): Promise<ClaudeCodeResult> {
     const startTime = Date.now();
 
@@ -603,8 +607,8 @@ export class ClaudeCodeExecutor {
       const fullPrompt = this.buildPromptWithContext(prompt, context);
       this.validateInput(fullPrompt);
 
-      const callbacks: SessionCallbacks = {};
-      if (onChunk) {
+      const callbacks: SessionCallbacks = { ...streamCallbacks };
+      if (onChunk && !callbacks.onText) {
         callbacks.onText = onChunk;
       }
 

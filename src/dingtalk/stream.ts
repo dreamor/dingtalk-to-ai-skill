@@ -358,6 +358,13 @@ export class DingtalkStreamService {
       } = data;
 
       const userId = senderId || 'unknown';
+
+      // allow_from 访问控制
+      if (!this.isUserAllowed(userId)) {
+        console.log(`[Stream] [${messageId}] 用户 ${userId} 不在允许列表中，忽略消息`);
+        return;
+      }
+
       // chatType: "group" = 群聊，"person" = 单聊
       const conversationType: 'group' | 'user' = chatType === 'group' ? 'group' : 'user';
       const userName = senderNick || 'Unknown';
@@ -759,5 +766,15 @@ export class DingtalkStreamService {
 
       return false;
     }
+  }
+
+  private isUserAllowed(userId: string): boolean {
+    const allowFrom = config.dingtalk.allowFrom;
+    if (allowFrom === '*') return true;
+    const allowedUsers = allowFrom
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    return allowedUsers.includes(userId);
   }
 }

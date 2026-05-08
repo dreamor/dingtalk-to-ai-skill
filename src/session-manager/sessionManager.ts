@@ -123,24 +123,77 @@ export class SessionManager {
 
   /**
    * 获取或创建会话
+   * 空闲超时的会话自动归档为 idle，创建新会话（防上下文漂移）
    */
   async getOrCreateSession(userId: string): Promise<Session> {
+    const now = Date.now();
+    const idleResetMs = config.session.ttl;
+
     // 查找用户的活跃会话
     const activeSession = Object.values(this.sessions).find(
       s => s.userId === userId && s.state === SessionState.Active
     );
 
     if (activeSession) {
-      // 检查是否过期
-      if (Date.now() - activeSession.lastActivityAt < this.sessionConfig.ttl) {
-        return activeSession;
+      const idleDuration = now - activeSession.lastActivityAt;
+
+      // 检查是否过期（超过 TTL）
+      if (idleDuration >= this.sessionConfig.ttl) {
+        activeSession.state = SessionState.Expired;
+        return this.createSession(userId);
       }
-      // 标记为过期
-      activeSession.state = SessionState.Expired;
+
+      // 检查是否空闲轮转（超过 idle reset 阈值，但未过期）
+      if (idleDuration >= idleResetMs) {
+        activeSession.state = SessionState.Idle;
+        console.log(
+          `🔄 会话空闲轮转：${activeSession.conversationId} (空闲 ${Math.round(idleDuration / 60000)}min)`
+        );
+        return this.createSession(userId);
+      }
+
+      return activeSession;
     }
 
     // 创建新会话
     return this.createSession(userId);
+  }
+
+  /**
+   * 获取用户的所有会话（含历史）
+   */
+  async getUserSessions(userId: string): Promise<Session[]> {
+    return Object.values(this.sessions)
+      .filter(s => s.userId === userId)
+      .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
+  }
+
+  /**
+   * 切换到指定会话（重新激活 idle 会话）
+   */
+  async switchSession(userId: string, conversationId: string): Promise<Session | null> {
+    const session = this.sessions[conversationId];
+    if (!session || session.userId !== userId) {
+      return null;
+    }
+
+    if (session.state === SessionState.Idle || session.state === SessionState.Expired) {
+      // 将当前活跃会话归档
+      const currentActive = Object.values(this.sessions).find(
+        s => s.userId === userId && s.state === SessionState.Active
+      );
+      if (currentActive) {
+        currentActive.state = SessionState.Idle;
+      }
+
+      // 重新激活目标会话
+      session.state = SessionState.Active;
+      session.lastActivityAt = Date.now();
+      console.log(`🔀 切换会话：${conversationId} (用户：${userId})`);
+      return session;
+    }
+
+    return session;
   }
 
   /**

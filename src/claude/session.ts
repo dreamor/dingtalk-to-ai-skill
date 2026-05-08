@@ -359,8 +359,11 @@ export class ClaudeSession {
       'stream-json',
       '--bare',
       '--verbose',
-      '--dangerously-skip-permissions',
     ];
+
+    if (this.config.permissionMode === 'dangerously-skip-permissions') {
+      args.push('--dangerously-skip-permissions');
+    }
 
     if (this.config.model) {
       args.push('--model', this.config.model);
