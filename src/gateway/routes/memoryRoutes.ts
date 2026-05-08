@@ -1,6 +1,7 @@
 /**
  * 项目记忆管理路由
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { MemoryManager, MemoryCategory, MemorySource } from '../../memory';
 

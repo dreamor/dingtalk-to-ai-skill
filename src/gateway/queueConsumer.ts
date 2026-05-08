@@ -266,7 +266,7 @@ export class QueueConsumer {
       };
 
       // 8. 根据配置的 AI Provider 调用相应的 CLI
-      const providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
+      const _providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
       let result;
 
       if (config.aiProvider === 'claude') {

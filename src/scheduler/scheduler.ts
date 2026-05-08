@@ -2,6 +2,10 @@
  * 定时任务调度器
  * 支持 cron 表达式定时触发任务，结果通过消息队列推送到钉钉群
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import cron, { ScheduledTask } from 'node-cron';
 import { randomUUID } from 'crypto';
 import { MessageQueue } from '../message-queue/messageQueue';
@@ -59,6 +63,7 @@ export class Scheduler {
   /**
    * 初始化调度器
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async init(): Promise<void> {
     if (!this.config.enabled) {
       console.log('[Scheduler] 调度器未启用');
@@ -308,10 +313,12 @@ export class Scheduler {
     if (!db) return;
 
     try {
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR REPLACE INTO scheduler_tasks (id, name, cron, prompt, conversationId, enabled, createdAt, lastRunAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `
+      ).run(
         task.id,
         task.name,
         task.cron,
@@ -339,7 +346,12 @@ export class Scheduler {
   /**
    * 获取调度器状态
    */
-  getStatus(): { enabled: boolean; totalTasks: number; activeTasks: number; tasks: SchedulerTask[] } {
+  getStatus(): {
+    enabled: boolean;
+    totalTasks: number;
+    activeTasks: number;
+    tasks: SchedulerTask[];
+  } {
     return {
       enabled: this.config.enabled,
       totalTasks: this.taskDefinitions.size,

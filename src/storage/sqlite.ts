@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { UserMessage, AIMessage, ConversationMessage } from '../types/message';
+import { UserMessage, ConversationMessage } from '../types/message';
 
 /**
  * 存储配置
@@ -564,7 +564,6 @@ export class SQLiteStorage {
   isReady(): boolean {
     return this.isInitialized;
   }
-
 
   /**
    * 获取底层数据库实例（供高级模块使用，如记忆存储）

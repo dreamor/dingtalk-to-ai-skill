@@ -1,6 +1,7 @@
 /**
  * 多 Agent 路由管理路由
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { ProviderRegistry, MessageRouter } from '../../router';
 

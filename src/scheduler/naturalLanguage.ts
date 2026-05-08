@@ -12,26 +12,60 @@ const NATURAL_LANGUAGE_PATTERNS: Array<{
   description: string;
 }> = [
   // 中文模式
-  { pattern: /每(天|日)早上\s*(\d+)\s*点/, cron: '0 {{HOUR}} * * *', description: '每天早上 {{HOUR}} 点' },
-  { pattern: /每(天|日)下午\s*(\d+)\s*点/, cron: '0 {{HOUR_PM}} * * *', description: '每天下午 {{HOUR}} 点' },
+  {
+    pattern: /每(天|日)早上\s*(\d+)\s*点/,
+    cron: '0 {{HOUR}} * * *',
+    description: '每天早上 {{HOUR}} 点',
+  },
+  {
+    pattern: /每(天|日)下午\s*(\d+)\s*点/,
+    cron: '0 {{HOUR_PM}} * * *',
+    description: '每天下午 {{HOUR}} 点',
+  },
   { pattern: /每(天|日)\s*(\d+)\s*点/, cron: '0 {{HOUR}} * * *', description: '每天 {{HOUR}} 点' },
   { pattern: /每小时/, cron: '0 * * * *', description: '每小时' },
   { pattern: /每\s*(\d+)\s*分钟/, cron: '*/{{MIN}} * * * *', description: '每 {{MIN}} 分钟' },
-  { pattern: /每周([一二三四五六日天])\s*(\d+)\s*点/, cron: '0 {{HOUR}} * * {{DOW}}', description: '每周{{DOW_NAME}} {{HOUR}} 点' },
-  { pattern: /每个?工作日\s*(\d+)\s*点/, cron: '0 {{HOUR}} * * 1-5', description: '每个工作日 {{HOUR}} 点' },
+  {
+    pattern: /每周([一二三四五六日天])\s*(\d+)\s*点/,
+    cron: '0 {{HOUR}} * * {{DOW}}',
+    description: '每周{{DOW_NAME}} {{HOUR}} 点',
+  },
+  {
+    pattern: /每个?工作日\s*(\d+)\s*点/,
+    cron: '0 {{HOUR}} * * 1-5',
+    description: '每个工作日 {{HOUR}} 点',
+  },
   { pattern: /每天/, cron: '0 9 * * *', description: '每天（默认 9:00）' },
 
   // 英文模式
-  { pattern: /every\s+day\s+at\s+(\d+)/i, cron: '0 {{HOUR}} * * *', description: 'every day at {{HOUR}}:00' },
+  {
+    pattern: /every\s+day\s+at\s+(\d+)/i,
+    cron: '0 {{HOUR}} * * *',
+    description: 'every day at {{HOUR}}:00',
+  },
   { pattern: /every\s+hour/i, cron: '0 * * * *', description: 'every hour' },
-  { pattern: /every\s+(\d+)\s+minutes?/i, cron: '*/{{MIN}} * * * *', description: 'every {{MIN}} minutes' },
-  { pattern: /every\s+weekday\s+at\s+(\d+)/i, cron: '0 {{HOUR}} * * 1-5', description: 'every weekday at {{HOUR}}:00' },
+  {
+    pattern: /every\s+(\d+)\s+minutes?/i,
+    cron: '*/{{MIN}} * * * *',
+    description: 'every {{MIN}} minutes',
+  },
+  {
+    pattern: /every\s+weekday\s+at\s+(\d+)/i,
+    cron: '0 {{HOUR}} * * 1-5',
+    description: 'every weekday at {{HOUR}}:00',
+  },
 ];
 
 /** 中文星期映射 */
 const DOW_MAP: Record<string, string> = {
-  '一': '1', '二': '2', '三': '3', '四': '4',
-  '五': '5', '六': '6', '日': '0', '天': '0',
+  一: '1',
+  二: '2',
+  三: '3',
+  四: '4',
+  五: '5',
+  六: '6',
+  日: '0',
+  天: '0',
 };
 
 /** 解析结果 */
@@ -54,7 +88,7 @@ export function parseNaturalLanguageCron(input: string): NaturalLanguageCronResu
 
   // 如果已经是标准 cron 格式，直接返回
   const cronParts = trimmed.split(/\s+/);
-  if (cronParts.length === 5 && /^[\d*/,\-]+$/.test(cronParts.join(''))) {
+  if (cronParts.length === 5 && /^[\d*/,-]+$/.test(cronParts.join(''))) {
     return {
       success: true,
       cron: trimmed,

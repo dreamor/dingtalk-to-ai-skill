@@ -10,7 +10,6 @@ import {
   MemoryFilter,
 } from './memoryStore';
 import { SessionManager } from '../session-manager/sessionManager';
-import { generateMessageId } from '../utils/messageId';
 
 /**
  * 记忆管理器配置
@@ -163,7 +162,7 @@ export class MemoryManager {
    */
   async maybeSummarizeConversation(
     conversationId: string,
-    userId: string
+    _userId: string
   ): Promise<MemoryEntry | null> {
     if (!this.config.autoSummarizeEnabled || !this.sessionManager) {
       return null;

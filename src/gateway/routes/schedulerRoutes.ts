@@ -1,6 +1,7 @@
 /**
  * 定时任务路由
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { Scheduler } from '../../scheduler';
 

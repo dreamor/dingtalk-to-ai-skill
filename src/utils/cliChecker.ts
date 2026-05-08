@@ -85,7 +85,7 @@ export async function checkCLIAvailability(
         suggestion: getInstallSuggestion(p),
       };
     }
-  } catch (error) {
+  } catch (_error) {
     availabilityCache.set(p, { available: false, lastChecked: Date.now() });
     return {
       available: false,

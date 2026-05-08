@@ -3,14 +3,7 @@
  * 将技术错误转换为用户友好的消息
  */
 
-import {
-  ErrorType,
-  ERROR_MESSAGES,
-  SYSTEM_ERROR_MESSAGES,
-  CLI_INSTALL_SUGGESTIONS,
-  getRateLimitMessage,
-  BUSY_ERROR_MESSAGE,
-} from '../config/errorMessages';
+import { ErrorType } from '../config/errorMessages';
 
 /**
  * 错误类型枚举（保持向后兼容）

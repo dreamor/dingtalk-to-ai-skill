@@ -1,6 +1,10 @@
 /**
  * 诊断工具 - 检查系统环境和配置
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { spawn } from 'child_process';
 import { existsSync, statSync } from 'fs';
 import { readFileSync } from 'fs';
@@ -41,6 +45,7 @@ export class Doctor {
   /**
    * 检查 Node.js 版本
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async checkNodeVersion(): Promise<void> {
     const version = process.version;
     const major = parseInt(version.slice(1).split('.')[0]);
@@ -56,6 +61,7 @@ export class Doctor {
   /**
    * 检查项目文件
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async checkProjectFiles(): Promise<void> {
     const files = [
       { path: 'package.json', name: 'package.json' },
@@ -143,7 +149,7 @@ export class Doctor {
   private async checkOpenCode(): Promise<void> {
     const cmd = config.ai.command;
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const proc = spawn(cmd, ['--version'], {
         stdio: 'pipe',
         timeout: 5000,
@@ -151,15 +157,15 @@ export class Doctor {
 
       let output = '';
 
-      proc.stdout?.on('data', (data) => {
+      proc.stdout?.on('data', data => {
         output += data.toString();
       });
 
-      proc.stderr?.on('data', (data) => {
+      proc.stderr?.on('data', data => {
         output += data.toString();
       });
 
-      proc.on('close', (code) => {
+      proc.on('close', code => {
         if (code === 0) {
           const version = output.trim().split('\n')[0] || 'unknown';
           this.results.push({
@@ -204,6 +210,7 @@ export class Doctor {
   /**
    * 检查依赖
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   private async checkDependencies(): Promise<void> {
     const requiredDeps = ['dingtalk-stream', 'express', 'axios'];
 

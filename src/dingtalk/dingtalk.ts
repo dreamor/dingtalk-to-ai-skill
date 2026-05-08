@@ -2,6 +2,10 @@
  * 钉钉 Channel 实现
  * 基于 Stream 模式实现消息收发，无需 Webhook 回调
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 
@@ -55,14 +59,16 @@ interface GetAccessTokenResponse extends DingtalkApiResponse {
 
 export interface DingtalkResponse {
   msgType: string;
-  content: {
-    text: string;
-  } | {
-    markdown: {
-      title: string;
-      text: string;
-    };
-  };
+  content:
+    | {
+        text: string;
+      }
+    | {
+        markdown: {
+          title: string;
+          text: string;
+        };
+      };
 }
 
 export class DingtalkService {
@@ -153,7 +159,11 @@ export class DingtalkService {
   /**
    * 发送文本消息
    */
-  async sendTextMessage(accessToken: string, content: string, mentionList?: string[]): Promise<void> {
+  async sendTextMessage(
+    accessToken: string,
+    content: string,
+    mentionList?: string[]
+  ): Promise<void> {
     await this.httpClient.post('/robot/send', {
       msgtype: 'text',
       text: {
@@ -178,51 +188,53 @@ export class DingtalkService {
       limit = 20,
       timeout = 30000, // Long Polling 需要较长超时
     } = params;
-  
+
     try {
       const accessToken = await this.getAccessToken();
-  
+
       // 构建请求体
       const requestBody: Record<string, unknown> = {
         limit,
       };
-  
+
       if (cursor) {
         requestBody['cursor'] = cursor;
       }
-  
+
       // 使用钉钉 Long Polling API
       // 这是钉钉官方提供的免回调 URL 方案，适合轮询模式
       // 文档：https://open.dingtalk.com/document/orgapp-server/obtain-llm-pushes
-      const response = await this.httpClient.post(
-        '/v1.0/contact/messages/get',
-        requestBody,
-        {
-          params: {
-            access_token: accessToken,
-          },
-          timeout,
-          headers: {
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-  
+      const response = await this.httpClient.post('/v1.0/contact/messages/get', requestBody, {
+        params: {
+          access_token: accessToken,
+        },
+        timeout,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
       if (response.data.code !== 'ok' && !response.data.success) {
-        throw new Error(`拉取消息失败：${response.data.message || response.data.errmsg || '未知错误'}`);
+        throw new Error(
+          `拉取消息失败：${response.data.message || response.data.errmsg || '未知错误'}`
+        );
       }
-  
+
       const data = response.data || {};
-      const messages: DingtalkMessage[] = (data.result?.items || []).map((msg: Record<string, unknown>) => ({
-        msgUid: msg.msgUuid as string || String(msg.bizId || ''),
-        conversationId: msg.conversationId as string,
-        senderId: msg.senderId as string,
-        senderNick: msg.senderNick as string || '未知',
-        text: msg.text ? { content: String(msg.text) } : undefined,
-        msgType: msg.msgType as string || 'text',
-        createTime: Number(msg.createTime || msg.sendTime || Date.now()),
-      }));
-  
+      const messages: DingtalkMessage[] = (data.result?.items || []).map(
+        (msg: Record<string, unknown>) => ({
+          msgUid: (msg.msgUuid as string) || (typeof msg.bizId === 'string' ? msg.bizId : ''),
+          conversationId: msg.conversationId as string,
+          senderId: msg.senderId as string,
+          senderNick: (msg.senderNick as string) || '未知',
+          text: msg.text
+            ? { content: typeof msg.text === 'string' ? msg.text : JSON.stringify(msg.text) }
+            : undefined,
+          msgType: (msg.msgType as string) || 'text',
+          createTime: Number(msg.createTime || msg.sendTime || Date.now()),
+        })
+      );
+
       return {
         hasMore: data.hasMore === true,
         nextCursor: data.nextCursor as string | undefined,
@@ -237,7 +249,10 @@ export class DingtalkService {
   /**
    * 拉取群消息 (使用群机器人接口)
    */
-  async fetchGroupMessages(sinceTimestamp?: number, limit: number = 20): Promise<DingtalkMessage[]> {
+  async fetchGroupMessages(
+    sinceTimestamp?: number,
+    limit: number = 20
+  ): Promise<DingtalkMessage[]> {
     try {
       const accessToken = await this.getAccessToken();
 
@@ -266,7 +281,12 @@ export class DingtalkService {
             conversationId: msg.conversationId as string,
             senderId: msg.senderId as string,
             senderNick: msg.senderNick as string,
-            text: msg.content ? { content: String(msg.content) } : undefined,
+            text: msg.content
+              ? {
+                  content:
+                    typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
+                }
+              : undefined,
             msgType: msg.msgType as string,
             createTime: Number(msg.createTime) || Date.now(),
           }));

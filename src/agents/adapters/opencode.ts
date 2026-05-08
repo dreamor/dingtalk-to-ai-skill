@@ -1,6 +1,8 @@
 /**
  * OpenCode Agent 适配器 - 将 OpenCodeExecutor 适配为 Agent 接口
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import type { Agent, AgentResult, AgentConfig } from '../types';
 import type { MessageContext } from '../../types/message';
 import { OpenCodeExecutor } from '../../opencode/executor';

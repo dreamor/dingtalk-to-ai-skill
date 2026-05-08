@@ -7,6 +7,8 @@
  * 2. streamUpdate() - 流式更新卡片内容
  * 3. finish() - 完成卡片，标记为 finished
  */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
 import { createSafeLogger } from '../utils/logger';
@@ -349,7 +351,7 @@ export class AICardService {
         try {
           await this.streamUpdate(card, content, finished);
           logger.log('QPS 限流重试成功');
-        } catch (retryErr) {
+        } catch (_retryErr) {
           logger.error('QPS 限流重试失败，跳过本次更新');
         }
       } else {
@@ -451,7 +453,7 @@ export class AICardService {
             await doPut();
             logger.log(`${operation} 重试成功`);
             return;
-          } catch (retryErr) {
+          } catch (_retryErr) {
             logger.error(`${operation} 重试失败 (${i + 1}/${maxRetries})`);
           }
         }

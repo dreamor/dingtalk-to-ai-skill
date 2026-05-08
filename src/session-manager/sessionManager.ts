@@ -3,7 +3,7 @@
  * 负责管理用户对话会话，支持会话持久化和历史管理
  */
 import { Session, SessionState, SessionConfig, DEFAULT_SESSION_CONFIG } from '../types/session';
-import { ConversationMessage, UserMessage, AIMessage } from '../types/message';
+import { ConversationMessage } from '../types/message';
 import { config } from '../config';
 import { generateConversationId } from '../utils/messageId';
 
@@ -62,6 +62,7 @@ export class SessionManager {
   /**
    * 创建新会话
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async createSession(userId: string): Promise<Session> {
     // 检查并强制执行容量限制
     this.enforceCapacityLimit();
@@ -117,6 +118,7 @@ export class SessionManager {
   /**
    * 获取会话
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getSession(conversationId: string): Promise<Session | null> {
     return this.sessions[conversationId] || null;
   }
@@ -162,6 +164,7 @@ export class SessionManager {
   /**
    * 获取用户的所有会话（含历史）
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getUserSessions(userId: string): Promise<Session[]> {
     return Object.values(this.sessions)
       .filter(s => s.userId === userId)
@@ -171,6 +174,7 @@ export class SessionManager {
   /**
    * 切换到指定会话（重新激活 idle 会话）
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async switchSession(userId: string, conversationId: string): Promise<Session | null> {
     const session = this.sessions[conversationId];
     if (!session || session.userId !== userId) {
@@ -203,6 +207,7 @@ export class SessionManager {
   /**
    * 更新会话
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async updateSession(session: Session): Promise<void> {
     session.lastActivityAt = Date.now();
     session.context.metadata.lastActivityAt = Date.now();
@@ -341,6 +346,7 @@ export class SessionManager {
   /**
    * 获取统计信息
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getStats(): Promise<SessionStats> {
     const stats: SessionStats = {
       total: Object.keys(this.sessions).length,
@@ -373,6 +379,7 @@ export class SessionManager {
   /**
    * 获取所有会话
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async getAllSessions(): Promise<Session[]> {
     return Object.values(this.sessions);
   }
@@ -380,6 +387,7 @@ export class SessionManager {
   /**
    * 清空所有会话
    */
+  // eslint-disable-next-line @typescript-eslint/require-await
   async clearAllSessions(): Promise<void> {
     this.sessions = {};
     console.log('🧹 已清空所有会话');

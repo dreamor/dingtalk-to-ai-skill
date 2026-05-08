@@ -1,7 +1,6 @@
 /**
  * 互动卡片模块 - 构建和发送钉钉互动卡片消息
  */
-import { randomUUID } from 'crypto';
 import axios from 'axios';
 
 export interface CardButton {

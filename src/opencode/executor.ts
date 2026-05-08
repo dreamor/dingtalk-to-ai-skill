@@ -3,6 +3,10 @@
  * 负责调用 Open Code CLI 执行各种任务（编程、对话、调用 skill/MCP）
  * 所有消息都通过 Open Code 处理，利用其内置的大模型能力
  */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { spawn, ChildProcess } from 'child_process';
 import { config } from '../config';
 import { withRetry } from '../utils/retry';
@@ -390,12 +394,14 @@ export class OpenCodeExecutor {
       }
 
       // 流式输出
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
       processInstance.stdout?.on('data', async data => {
         const chunk = data.toString();
         stdout += chunk;
         await onChunk(chunk);
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
       processInstance.stderr?.on('data', async data => {
         const chunk = data.toString();
         stderr += chunk;

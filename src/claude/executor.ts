@@ -5,7 +5,9 @@
  *
  * 注意：Claude CLI 需要 TTY 才能正常工作，因此使用 node-pty 创建伪终端
  */
-import { spawn, ChildProcess } from 'child_process';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import * as pty from 'node-pty';
 import * as fs from 'fs';
 import * as path from 'path';

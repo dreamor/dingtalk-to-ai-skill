@@ -173,6 +173,7 @@ export class StreamingCardManager {
   ): StreamCardHandle {
     return {
       outTrackId: stream.outTrackId,
+      // eslint-disable-next-line @typescript-eslint/require-await
       appendChunk: async (chunk: string) => {
         if (stream.finished) return;
 
@@ -314,6 +315,7 @@ export class StreamingCardManager {
     stream: ActiveStream,
     sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
   ): void {
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     stream.updateTimer = setInterval(async () => {
       if (stream.finished) return;
 

@@ -34,6 +34,7 @@ export function createStatusRoutes(deps: StatusRouterDeps): Router {
   });
 
   // 测试接口
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises, @typescript-eslint/require-await
   router.post('/api/test', async (req: Request, res: Response) => {
     // processMessage 需要由 GatewayServer 注入
     // 这里只做占位，实际处理在 index.ts 中
@@ -41,6 +42,7 @@ export function createStatusRoutes(deps: StatusRouterDeps): Router {
   });
 
   // 获取会话状态
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   router.get('/api/sessions', async (_req: Request, res: Response) => {
     const stats = await deps.getSessionManager().getStats();
     res.json({
@@ -58,6 +60,7 @@ export function createStatusRoutes(deps: StatusRouterDeps): Router {
   });
 
   // 检查 AI Provider 状态
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   router.get('/api/status', async (_req: Request, res: Response) => {
     const [opencodeAvailable, claudeAvailable] = await Promise.all([
       deps.getOpenCodeExecutor().isAvailable(),
@@ -109,6 +112,7 @@ export function createStatusRoutes(deps: StatusRouterDeps): Router {
   });
 
   // 系统诊断
+  // eslint-disable-next-line @typescript-eslint/no-misused-promises
   router.get('/api/doctor', async (_req: Request, res: Response) => {
     const { runDoctor } = await import('../../utils/doctor');
     const results = await runDoctor();

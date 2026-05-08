@@ -3,8 +3,6 @@
  * 提供详细的系统健康状态检查
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import { config } from '../config';
 import {
   getAICLICommand,
@@ -13,8 +11,6 @@ import {
   checkCLIAvailability,
   getCLIVersion,
 } from '../utils/cliChecker';
-
-const execAsync = promisify(exec);
 
 export interface HealthCheckResult {
   status: 'ok' | 'degraded' | 'error';
@@ -39,7 +35,7 @@ export interface HealthCheckItem {
 /**
  * 检查内存使用情况
  */
-async function checkMemory(): Promise<HealthCheckItem> {
+function checkMemory(): HealthCheckItem {
   const start = Date.now();
   const memUsage = process.memoryUsage();
   const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);

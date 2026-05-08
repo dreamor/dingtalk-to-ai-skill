@@ -7,6 +7,8 @@
  *
  * 协议参考: https://github.com/chenhg5/cc-connect (agent/claudecode/session.go)
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { spawn, ChildProcess } from 'child_process';
 import { createInterface, Interface } from 'readline';
 import * as fs from 'fs';

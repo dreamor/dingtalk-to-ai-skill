@@ -1,6 +1,9 @@
 /**
  * 钩子执行器 - 在生命周期事件触发时执行用户自定义动作
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { exec } from 'child_process';
 import axios from 'axios';
 import type { Hook, HookAction, HookContext, HookEvent } from './types';
@@ -69,12 +72,12 @@ class HookRunner {
     for (const [key, value] of Object.entries(context)) {
       resolvedCommand = resolvedCommand.replace(
         new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-        String(value ?? '')
+        typeof value === 'string' ? value : value != null ? JSON.stringify(value) : ''
       );
     }
 
     return new Promise((resolve, reject) => {
-      exec(resolvedCommand, (error, stdout, stderr) => {
+      exec(resolvedCommand, (error, stdout, _stderr) => {
         if (error) {
           reject(new Error(`Shell 执行失败: ${error.message}`));
           return;
@@ -88,12 +91,15 @@ class HookRunner {
   }
 
   /** 执行 HTTP 请求 */
-  private async executeHttp(action: { url: string; method: string; body?: string; headers?: Record<string, string> }, context: HookContext): Promise<void> {
+  private async executeHttp(
+    action: { url: string; method: string; body?: string; headers?: Record<string, string> },
+    context: HookContext
+  ): Promise<void> {
     let resolvedBody = action.body || '';
     for (const [key, value] of Object.entries(context)) {
       resolvedBody = resolvedBody.replace(
         new RegExp(`\\{\\{${key}\\}\\}`, 'g'),
-        String(value ?? '')
+        typeof value === 'string' ? value : value != null ? JSON.stringify(value) : ''
       );
     }
 

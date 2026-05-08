@@ -1,7 +1,6 @@
 /**
  * AI Provider 注册表 - 管理多个 AI 提供者
  */
-import { randomUUID } from 'crypto';
 
 export interface AIProvider {
   name: string;

@@ -7,6 +7,8 @@
  * 3. 启动 Stream 模式接收钉钉消息
  * 4. 处理消息并调用 AI CLI
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { config, validateConfig } from './config';
 import { DingtalkService } from './dingtalk/dingtalk';
 import { DingtalkStreamService } from './dingtalk/stream';
@@ -32,7 +34,7 @@ let globalStreamService: DingtalkStreamService | null = null;
 let globalGateway: GatewayServer | null = null;
 let globalSessionManager: SessionManager | null = null;
 let globalScheduler: Scheduler | null = null;
-let globalMemoryManager: MemoryManager | null = null;
+let _globalMemoryManager: MemoryManager | null = null;
 
 async function main(): Promise<void> {
   // 启用全局日志脱敏
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
       boostOnAccess: config.memory.boostOnAccess,
       boostIncrement: config.memory.boostIncrement,
     });
-    globalMemoryManager = memoryManager;
+    _globalMemoryManager = memoryManager;
     console.log(
       `✅ 项目记忆模块已启动 (自动摘要: ${config.memory.autoSummarizeEnabled ? '启用' : '禁用'})`
     );
@@ -336,6 +338,7 @@ async function cleanupResources(): Promise<void> {
   console.log('✅ 所有资源清理完成');
 }
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('SIGINT', async () => {
   console.log('\n🛑 接收到关闭信号，正在清理...');
   if (isAlertEnabled()) {
@@ -345,6 +348,7 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('SIGTERM', async () => {
   console.log('\n🛑 接收到终止信号，正在清理...');
   if (isAlertEnabled()) {
@@ -368,6 +372,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // 捕获未捕获的异常
+// eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('uncaughtException', async error => {
   console.error('❌ 未捕获的异常:');
   console.error('   错误:', error.message);

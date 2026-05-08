@@ -7,6 +7,10 @@
  * 4. Auto-reconnect with exponential backoff
  * 5. Connection health monitoring
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
@@ -153,6 +157,7 @@ export class DingtalkStreamService {
       }
     });
 
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.client.registerCallbackListener(TOPIC_ROBOT, async (msg: DWClientDownStream) => {
       logger.log(`Received callback: msgId=${msg.headers.messageId}, topic=${msg.headers.topic}`);
 
@@ -237,6 +242,7 @@ export class DingtalkStreamService {
     }
 
     // 设置重连定时器
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.reconnectTimer = setTimeout(async () => {
       logger.log(`执行重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
@@ -250,6 +256,7 @@ export class DingtalkStreamService {
     }, delay);
   }
 
+  // eslint-disable-next-line @typescript-eslint/require-await
   async stop(): Promise<void> {
     logger.log('Stopping service...');
 

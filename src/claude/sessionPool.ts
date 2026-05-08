@@ -6,6 +6,7 @@
  * - 空闲超时自动回收
  * - 全局优雅关闭
  */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import {
   ClaudeSession,
   type ClaudeSessionConfig,

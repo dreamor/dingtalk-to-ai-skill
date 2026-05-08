@@ -1,6 +1,8 @@
 /**
  * 配置模块 - 集中管理所有配置项，包含完整的值域验证
  */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import dotenv from 'dotenv';
 
 // 加载环境变量（强制覆盖已有值）

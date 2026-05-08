@@ -8,6 +8,9 @@
  * - 队列消费逻辑移至 queueConsumer.ts
  * - 路由逻辑移至 routes/ 目录
  */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import express, { Express, Request, Response, NextFunction } from 'express';
 import axios from 'axios';
 import { DingtalkService } from '../dingtalk/dingtalk';
@@ -24,8 +27,7 @@ import { UserMessage, AIMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
 import { renderMarkdown, preprocessDingTalkMarkdown } from '../utils/markdown';
 import { createAdminRouter } from '../web';
-import { StreamingCardManager, type StreamCardHandle } from '../dingtalk/streamingCard';
-import { agentRegistry } from '../agents';
+import { StreamingCardManager } from '../dingtalk/streamingCard';
 import { hookRunner } from '../hooks';
 import type { HookEvent } from '../hooks';
 import { buildHistory } from '../utils/historyBuilder';
@@ -39,9 +41,8 @@ import { RetrySender, type MessageSender } from './retrySender';
 import { CardBuilder, CardSender } from '../dingtalk/cards';
 import { Scheduler } from '../scheduler';
 import { parseCommand } from '../commands/commandParser';
-import { CommandHandler, type CommandDeps } from '../commands/commandHandler';
+import { CommandHandler } from '../commands/commandHandler';
 import { ProviderRegistry, MessageRouter } from '../router';
-import type { RoutingRule } from '../router';
 import { MemoryManager } from '../memory';
 import { DisplayFilter } from '../display';
 import {
@@ -270,6 +271,7 @@ export class GatewayServer {
     this.app.use(statusRoutes);
 
     // 测试接口（需要注入 processMessage，在此单独注册）
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.app.post('/api/test', async (req: Request, res: Response) => {
       try {
         const result = await this.processMessage({
@@ -287,6 +289,7 @@ export class GatewayServer {
     });
 
     // 互动卡片 API
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.app.post('/api/card/send', async (req: Request, res: Response) => {
       try {
         const { conversationId, title, content, buttons, imageUrl } = req.body;
@@ -826,18 +829,21 @@ export class GatewayServer {
               undefined,
               opencodeContext,
               {
+                // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onText: async (text: string) => {
                   const filtered = displayFilter.filter({ type: 'text', content: text });
                   if (filtered.shouldSend && filtered.content) {
                     await streamHandle.appendChunk(filtered.content);
                   }
                 },
+                // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onThinking: async (text: string) => {
                   const filtered = displayFilter.filter({ type: 'thinking', content: text });
                   if (filtered.shouldSend && filtered.content) {
                     await streamHandle.appendChunk(filtered.content);
                   }
                 },
+                // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onToolUse: async (name: string, input: Record<string, unknown>) => {
                   const filtered = displayFilter.filter({
                     type: 'tool_use',
