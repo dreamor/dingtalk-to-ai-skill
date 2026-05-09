@@ -511,13 +511,22 @@ export class GatewayServer {
   }
 
   async start(port: number, host: string = '0.0.0.0'): Promise<void> {
-    // 初始化持久化会话池
+    // 初始化持久化会话池（同步等待 warmUp 完成，规避首条消息冷启动）
     if (config.persistentSession.enabled && config.aiProvider === 'claude') {
-      this.claudeCodeExecutor.initSessionPool({
-        maxSessions: config.persistentSession.maxSessions,
-        idleTimeout: config.persistentSession.idleTimeout,
-      });
-      console.log(`🚀 持久化会话池已启用 (最大 ${config.persistentSession.maxSessions} 会话)`);
+      try {
+        await this.claudeCodeExecutor.initSessionPool({
+          maxSessions: config.persistentSession.maxSessions,
+          idleTimeout: config.persistentSession.idleTimeout,
+        });
+        console.log(
+          `🚀 持久化会话池已启用 (最大 ${config.persistentSession.maxSessions} 会话，预热 ${config.persistentSession.warmUpSessions} 个 CLI 进程已就绪)`
+        );
+      } catch (warmupErr) {
+        console.warn(
+          `[Gateway] Claude CLI 预热失败: ${warmupErr instanceof Error ? warmupErr.message : String(warmupErr)}`
+        );
+        console.warn('[Gateway] 服务继续启动，但首条消息可能遇冷启动延迟');
+      }
     }
 
     return new Promise((resolve, reject) => {

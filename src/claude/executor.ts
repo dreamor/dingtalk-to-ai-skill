@@ -558,7 +558,7 @@ export class ClaudeCodeExecutor {
    * 启用后，executeSession() 将复用已有的 Claude CLI 进程，
    * 避免每次消息都冷启动（消除约 85 秒延迟）。
    */
-  initSessionPool(poolConfig?: SessionPoolConfig): void {
+  async initSessionPool(poolConfig?: SessionPoolConfig): Promise<void> {
     if (this.sessionPool) {
       console.log('[ClaudeCode] 会话池已初始化，跳过');
       return;
@@ -582,9 +582,7 @@ export class ClaudeCodeExecutor {
 
     const warmCount = config.persistentSession.warmUpSessions;
     if (warmCount > 0) {
-      this.sessionPool.warmUp(warmCount).catch(err => {
-        console.warn('[ClaudeCode] 预热失败:', err.message);
-      });
+      await this.sessionPool.warmUp(warmCount);
     }
   }
 

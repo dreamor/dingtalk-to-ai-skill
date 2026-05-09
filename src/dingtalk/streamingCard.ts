@@ -10,7 +10,7 @@
  * 新增功能：
  * - 工具调用格式化（📖 Read / ⚡ Bash / ✏️ Edit）
  * - 多卡片分页（超长内容自动分卡）
- * - 防抖更新（500ms debounce）
+ * - 防抖更新（200ms debounce）
  */
 import axios from 'axios';
 import { randomUUID } from 'crypto';
@@ -32,7 +32,7 @@ const logger = createSafeLogger('StreamingCard');
 // ==================== 配置常量 ====================
 
 /** 卡片更新防抖间隔（毫秒） */
-const CARD_UPDATE_INTERVAL = 500;
+const CARD_UPDATE_INTERVAL = 200;
 
 /** 单个卡片最大字符数 */
 const MAX_CARD_CONTENT = 8000;

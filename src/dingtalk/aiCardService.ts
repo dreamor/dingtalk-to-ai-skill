@@ -8,7 +8,7 @@
  * 3. finish() - 完成卡片，标记为 finished
  */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
+
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
 import { createSafeLogger } from '../utils/logger';
@@ -40,8 +40,8 @@ interface CardTarget {
   openConversationId: string;
 }
 
-/** 默认 AI 卡片模板 ID（钉钉官方流式卡片模板 - 打字机效果） */
-const DEFAULT_CARD_TEMPLATE_ID = '82632605-8031-4963-8a92-d25e2ca8aad7.schema';
+/** 默认 AI 卡片模板 ID（钉钉官方 AI 卡片模板 - 打字机效果） */
+const DEFAULT_CARD_TEMPLATE_ID = '02fcf2f4-5e02-4a85-b672-46d1f715543e.schema';
 
 /** 卡片状态 */
 const AICardStatus = {
@@ -67,18 +67,21 @@ async function getAccessToken(): Promise<string> {
     throw new Error('缺少钉钉配置：appKey 或 appSecret');
   }
 
-  const response = await axios.get(`${DINGTALK_API}/gettoken`, {
-    params: {
-      appkey: appKey,
-      appsecret: appSecret,
-    },
-  });
+  const response = await axios.post(
+    `${DINGTALK_API}/v1.0/oauth2/accessToken`,
+    { appKey, appSecret },
+    { headers: { 'Content-Type': 'application/json' } }
+  );
 
+  // 新 API 响应：accessToken 字段（小写）
+  if (response.data.accessToken) {
+    return response.data.accessToken as string;
+  }
+  // 兜底旧格式（errcode 字段）
   if (response.data.errcode !== 0) {
     throw new Error(`获取 access_token 失败：${response.data.errmsg}`);
   }
-
-  return response.data.access_token;
+  return response.data.access_token as string;
 }
 
 /**
@@ -160,7 +163,7 @@ function buildCreateAndDeliverBody(
     callbackType: 'STREAM',
     cardData: {
       cardParamMap: {
-        content: '',
+        msgContent: '',
         config: JSON.stringify({ autoLayout: true }),
       },
     },
@@ -182,7 +185,7 @@ function buildCreateAndDeliverBody(
 
   return {
     ...base,
-    openSpaceId: `dtv1.card//im_robot.${target.userId}`,
+    openSpaceId: `dtv1.card//IM_ROBOT.${target.userId}`,
     imRobotOpenSpaceModel: {
       supportForward: true,
       lastMessageI18n: { ZH_CN: 'AI 正在思考...' },
@@ -194,6 +197,9 @@ function buildCreateAndDeliverBody(
     imRobotOpenDeliverModel: {
       spaceType: 'IM_ROBOT',
       robotCode,
+      extension: {
+        dynamicSummary: 'true',
+      },
     },
   };
 }
@@ -300,9 +306,9 @@ export class AICardService {
           cardData: {
             cardParamMap: {
               flowStatus: AICardStatus.INPUTING,
-              content: content,
+              msgContent: content,
               staticMsgContent: '',
-              sys_full_json_obj: JSON.stringify({ order: ['content'] }),
+              sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
               config: JSON.stringify({ autoLayout: true }),
             },
           },
@@ -323,8 +329,8 @@ export class AICardService {
       const body = {
         outTrackId: card.cardInstanceId,
         guid: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        key: 'content',
-        content: fixedContent,
+        key: 'msgContent',
+        msgContent: fixedContent,
         isFull: true,
         isFinalize: finished,
         isError: false,
@@ -390,9 +396,9 @@ export class AICardService {
         cardData: {
           cardParamMap: {
             flowStatus: AICardStatus.FINISHED,
-            content: fixedContent,
+            msgContent: fixedContent,
             staticMsgContent: '',
-            sys_full_json_obj: JSON.stringify({ order: ['content'] }),
+            sys_full_json_obj: JSON.stringify({ order: ['msgContent'] }),
             config: JSON.stringify({ autoLayout: true }),
           },
         },
