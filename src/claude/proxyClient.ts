@@ -378,14 +378,12 @@ export class ClaudeProxyClient {
                   const cmd = (toolInfo.input.command as string) || '';
                   const output = typeof block.content === 'string' ? block.content : '';
                   const combined = cmd + '\n' + output;
+                  // 匹配包含路径分隔符的图片路径，避免误匹配纯文件名
                   const imgMatch = combined.match(
-                    /(?:[A-Za-z]:[\\\/]|\.{0,2}[\\\/])?[\w.\-\\\/]+\.(?:png|jpg|jpeg|gif|bmp|webp)\b/i
+                    /(?:[A-Za-z]:[\\\/]|[\/~][\w.\-\\\/]+)[\w.\-\\\/]*\.(?:png|jpg|jpeg|gif|bmp|webp)\b/i
                   );
                   if (imgMatch) {
-                    const candidate = imgMatch[0].replace(/\\/g, '/');
-                    if (candidate.includes('/') || candidate.includes('\\')) {
-                      imagePath = imgMatch[0];
-                    }
+                    imagePath = imgMatch[0].replace(/\\/g, '/');
                   }
                 } else if (
                   toolName.startsWith('mcp__playwright__browser_take_screenshot') ||

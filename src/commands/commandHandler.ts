@@ -197,7 +197,7 @@ export class CommandHandler {
 
   private async handleReset(conversationId: string): Promise<string> {
     await this.deps.sessionManager.endSession(conversationId);
-    return '✅ 会话已重置，下次对话将创建新会话';
+    return '✅ 会话已重置（内存清空，session 文件保留，下次可恢复上下文）';
   }
 
   private async handleNew(conversationId: string): Promise<string> {
@@ -205,7 +205,7 @@ export class CommandHandler {
     if (this.deps.resetSession) {
       await this.deps.resetSession(conversationId);
     }
-    return '✅ 会话已完全重置（内存 + session 文件）';
+    return '✅ 会话已完全重置（内存 + session 文件均已清除，等价于全新对话）';
   }
 
   private async handleList(userId: string): Promise<string> {

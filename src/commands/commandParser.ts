@@ -42,8 +42,8 @@ export const COMMANDS = {
   switch: { description: '切换到指定会话（/switch <id>）' },
   queue: { description: '显示消息队列状态' },
   config: { description: '显示当前配置（脱敏）' },
-  reset: { description: '重置当前会话' },
-  new: { description: '完全重置会话（删除 session 文件）' },
+  reset: { description: '重置当前会话（仅内存，保留 session 文件）' },
+  new: { description: '完全重置会话（内存 + session 文件，等价于全新对话）' },
   remember: { description: '保存记忆（/remember key value）' },
 } as const;
 

@@ -96,6 +96,7 @@ describe('CommandHandler', () => {
     const parsed = parseCommand('/reset')!;
     const result = await handler.handle(parsed, 'user1', 'conv1');
     expect(result).toContain('会话已重置');
+    expect(result).toContain('session 文件保留');
     expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
   });
 
@@ -103,6 +104,7 @@ describe('CommandHandler', () => {
     const parsed = parseCommand('/new')!;
     const result = await handler.handle(parsed, 'user1', 'conv1');
     expect(result).toContain('会话已完全重置');
+    expect(result).toContain('session 文件均已清除');
     expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
   });
 
