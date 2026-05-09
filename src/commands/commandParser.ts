@@ -43,6 +43,7 @@ export const COMMANDS = {
   queue: { description: '显示消息队列状态' },
   config: { description: '显示当前配置（脱敏）' },
   reset: { description: '重置当前会话' },
+  new: { description: '完全重置会话（删除 session 文件）' },
   remember: { description: '保存记忆（/remember key value）' },
 } as const;
 

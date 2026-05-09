@@ -11,6 +11,7 @@ export interface CommandDeps {
   messageQueue: MessageQueue;
   aiProviderStatus?: { opencode: boolean; claude: boolean };
   stopSession?: (conversationId: string) => Promise<boolean>;
+  resetSession?: (conversationId: string) => Promise<boolean>;
 }
 
 export class CommandHandler {
@@ -53,6 +54,8 @@ export class CommandHandler {
         return this.handleConfig();
       case 'reset':
         return this.handleReset(conversationId);
+      case 'new':
+        return this.handleNew(conversationId);
       case 'remember':
         return this.handleRemember(args);
       default:
@@ -195,6 +198,14 @@ export class CommandHandler {
   private async handleReset(conversationId: string): Promise<string> {
     await this.deps.sessionManager.endSession(conversationId);
     return '✅ 会话已重置，下次对话将创建新会话';
+  }
+
+  private async handleNew(conversationId: string): Promise<string> {
+    await this.deps.sessionManager.endSession(conversationId);
+    if (this.deps.resetSession) {
+      await this.deps.resetSession(conversationId);
+    }
+    return '✅ 会话已完全重置（内存 + session 文件）';
   }
 
   private async handleList(userId: string): Promise<string> {

@@ -6,6 +6,11 @@
  * 2. 调用 AICardService.streamUpdate() 流式更新卡片内容
  * 3. AI 执行完毕：调用 AICardService.finish() 完成卡片
  * 4. 降级兜底：如果 AI Card 创建失败，回退到 sessionWebhook 发送 markdown
+ *
+ * 新增功能：
+ * - 工具调用格式化（📖 Read / ⚡ Bash / ✏️ Edit）
+ * - 多卡片分页（超长内容自动分卡）
+ * - 防抖更新（500ms debounce）
  */
 import axios from 'axios';
 import { randomUUID } from 'crypto';
@@ -13,8 +18,38 @@ import { config } from '../config';
 import type { StreamingConfig } from '../config';
 import { AICardService, type AICardInstance } from './aiCardService';
 import { createSafeLogger } from '../utils/logger';
+import {
+  MAX_RESULT_CHARS,
+  MAX_RESULT_LINES,
+  QUIET_TOOLS,
+  READ_ONLY_TOOLS,
+  TOOL_ICONS,
+  shortenPath,
+  formatToolCall,
+  formatToolResult,
+} from '../utils/toolFormatter';
 
 const logger = createSafeLogger('StreamingCard');
+
+// ==================== 配置常量 ====================
+
+/** 卡片更新防抖间隔（毫秒） */
+const CARD_UPDATE_INTERVAL = 500;
+
+/** 单个卡片最大字符数 */
+const MAX_CARD_CONTENT = 8000;
+
+/** 卡片分页阈值（超过此长度时分卡） */
+const CARD_SPLIT_THRESHOLD = 6000;
+
+/** 流式会话 TTL（毫秒） */
+const STREAM_TTL_MS = 10 * 60 * 1000;
+
+/** 清理间隔（毫秒） */
+const CLEANUP_INTERVAL_MS = 60 * 1000;
+
+/** 忙等待超时（毫秒） */
+const BUSY_WAIT_TIMEOUT_MS = 5000;
 
 /** 活跃的流式会话 */
 interface ActiveStream {
@@ -42,6 +77,14 @@ interface ActiveStream {
   finished: boolean;
   /** 发送者类型 */
   senderType: 'user' | 'group';
+  /** 当前卡片编号（0-based，用于分卡） */
+  cardPartIndex: number;
+  /** 当前卡片对应的文本偏移量 */
+  cardContentOffset: number;
+  /** 是否正在分卡（防止并发） */
+  isSplitting: boolean;
+  /** 是否正在更新（防抖） */
+  isUpdating: boolean;
 }
 
 /** 流式卡片句柄 - 返回给调用者用于追加文本 */
@@ -57,20 +100,36 @@ export interface StreamCardHandle {
   isDegraded(): boolean;
 }
 
+// 重新导出格式化工具，供外部使用
+export { formatToolCall, formatToolResult, shortenPath, TOOL_ICONS, QUIET_TOOLS, READ_ONLY_TOOLS };
+
+/**
+ * 截断卡片内容 — 优先保留头部
+ */
+function truncateCardContent(content: string): string {
+  if (content.length <= MAX_CARD_CONTENT) return content;
+
+  const truncateNotice = '\n\n---\n\n> ⚠️ *内容过长，已截断后部分*\n';
+  const keepStart = MAX_CARD_CONTENT - truncateNotice.length;
+  const head = content.substring(0, keepStart);
+  // 在最近的换行处截断，避免切断行
+  const lastNewline = head.lastIndexOf('\n');
+  const cleanHead = lastNewline > keepStart * 0.8 ? head.substring(0, lastNewline) : head;
+  return cleanHead + truncateNotice;
+}
+
 export class StreamingCardManager {
   private streams: Map<string, ActiveStream> = new Map();
   private config: StreamingConfig;
   private cardService: AICardService;
   private cleanupTimer: NodeJS.Timeout | null = null;
-  private static readonly STREAM_TTL_MS = 10 * 60 * 1000; // 10 分钟未活动的 stream 自动清理
-  private static readonly CLEANUP_INTERVAL_MS = 60 * 1000; // 每分钟检查一次
 
   constructor(streamingConfig?: Partial<StreamingConfig>) {
     this.config = {
       enabled: streamingConfig?.enabled ?? config.streaming.enabled,
-      intervalMs: streamingConfig?.intervalMs ?? config.streaming.intervalMs,
+      intervalMs: streamingConfig?.intervalMs ?? CARD_UPDATE_INTERVAL,
       minDeltaChars: streamingConfig?.minDeltaChars ?? config.streaming.minDeltaChars,
-      maxChars: streamingConfig?.maxChars ?? config.streaming.maxChars,
+      maxChars: streamingConfig?.maxChars ?? MAX_CARD_CONTENT,
       thinkingText: streamingConfig?.thinkingText ?? config.streaming.thinkingText,
       cardTemplateId: streamingConfig?.cardTemplateId ?? config.streaming.cardTemplateId,
     };
@@ -85,7 +144,7 @@ export class StreamingCardManager {
     this.cleanupTimer = setInterval(() => {
       const now = Date.now();
       for (const [id, stream] of this.streams) {
-        if (now - stream.lastSentAt > StreamingCardManager.STREAM_TTL_MS && !stream.finished) {
+        if (now - stream.lastSentAt > STREAM_TTL_MS && !stream.finished) {
           logger.warn(
             `清理过期 stream: ${id} (空闲 ${Math.round((now - stream.lastSentAt) / 60000)}min)`
           );
@@ -96,18 +155,11 @@ export class StreamingCardManager {
           this.streams.delete(id);
         }
       }
-    }, StreamingCardManager.CLEANUP_INTERVAL_MS);
+    }, CLEANUP_INTERVAL_MS);
   }
 
   /**
    * 开始流式：创建 AI Card，完成后发送最终结果
-   *
-   * @param conversationId - 会话 ID
-   * @param sessionWebhook - 会话 webhook（降级时使用）
-   * @param senderType - 发送者类型（user=单聊，group=群聊）
-   * @param sendMarkdownFn - 降级发送 markdown 的函数
-   * @param sendTextFn - 降级发送文本的函数
-   * @returns 流式句柄
    */
   async startStream(
     conversationId: string,
@@ -119,7 +171,6 @@ export class StreamingCardManager {
   ): Promise<StreamCardHandle> {
     const outTrackId = `stream-${randomUUID()}`;
 
-    // 尝试创建 AI Card（如果启用）
     let card: AICardInstance | null = null;
     let useDegraded = false;
 
@@ -156,6 +207,10 @@ export class StreamingCardManager {
       failureCount: 0,
       finished: false,
       senderType,
+      cardPartIndex: 0,
+      cardContentOffset: 0,
+      isSplitting: false,
+      isUpdating: false,
     };
 
     this.streams.set(outTrackId, stream);
@@ -173,13 +228,12 @@ export class StreamingCardManager {
   ): StreamCardHandle {
     return {
       outTrackId: stream.outTrackId,
-      // eslint-disable-next-line @typescript-eslint/require-await
       appendChunk: async (chunk: string) => {
         if (stream.finished) return;
 
         stream.fullText += chunk;
 
-        // 启动定时刷新器（首次收到文本时启动，统一处理 AI Card 和降级模式）
+        // 首次收到文本时启动定时刷新器
         if (!stream.updateTimer) {
           this.startFlushTimer(stream, sendMarkdownFn);
         }
@@ -199,12 +253,34 @@ export class StreamingCardManager {
           stream.updateTimer = null;
         }
 
-        // 使用 AI Card：先逐步推送打字机效果，再 finish
+        // 等待进行中的更新/分卡完成（带超时保护）
+        const deadline = Date.now() + BUSY_WAIT_TIMEOUT_MS;
+        while ((stream.isUpdating || stream.isSplitting) && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+        if (stream.isUpdating || stream.isSplitting) {
+          logger.warn('等待卡片更新超时，强制完成');
+          stream.isUpdating = false;
+          stream.isSplitting = false;
+        }
+
+        // 使用 AI Card：先逐步推送，再 finish
         if (!stream.degraded && stream.card) {
           try {
-            await this.typewriterFlush(stream);
-            await this.cardService.finish(stream.card, stream.fullText || '（无内容）');
-            logger.log(`AI Card 完成：${stream.outTrackId}`);
+            // 最终更新
+            const finalContent = stream.fullText.substring(stream.cardContentOffset);
+            await this.cardService.streamUpdate(
+              stream.card,
+              truncateCardContent(finalContent),
+              false
+            );
+            await this.cardService.finish(
+              stream.card,
+              truncateCardContent(stream.fullText) || '（无内容）'
+            );
+            logger.log(
+              `AI Card 完成：${stream.outTrackId}, totalCards: ${stream.cardPartIndex + 1}`
+            );
           } catch (error) {
             logger.error('AI Card 完成失败，尝试降级:', error);
             await this.sendFallback(stream, sendMarkdownFn, sendTextFn);
@@ -213,7 +289,6 @@ export class StreamingCardManager {
           await this.sendFallback(stream, sendMarkdownFn, sendTextFn);
         }
 
-        // 清理
         this.streams.delete(stream.outTrackId);
       },
       isDegraded: () => stream.degraded,
@@ -221,7 +296,7 @@ export class StreamingCardManager {
   }
 
   /**
-   * 降级发送 - 回退到 sessionWebhook 发送 markdown
+   * 降级发送
    */
   private async sendFallback(
     stream: ActiveStream,
@@ -231,20 +306,16 @@ export class StreamingCardManager {
     const title = 'AI 回复';
     const text = stream.fullText || '（无内容）';
 
-    // 优先使用传入的发送函数
     if (sendMarkdownFn) {
       try {
         const sent = await sendMarkdownFn(stream.conversationId, title, text);
-        if (sent) {
-          logger.log(`降级 markdown 已发送：${stream.outTrackId}`);
-          return;
-        }
+        if (sent) return;
       } catch (error) {
         logger.error('降级 markdown 发送失败:', error);
       }
     }
 
-    // 兜底：直接通过 sessionWebhook 发送
+    // 兜底
     try {
       await axios.post(
         stream.sessionWebhook,
@@ -254,102 +325,132 @@ export class StreamingCardManager {
         },
         { timeout: 10000 }
       );
-      logger.log(`降级 markdown 已发送（兜底）: ${stream.outTrackId}`);
     } catch (error) {
       logger.error('兜底发送失败:', error);
-
-      // 最后尝试发文本
       if (sendTextFn) {
         try {
           await sendTextFn(stream.conversationId, text.substring(0, 2000));
         } catch (e) {
-          logger.error('文本发送也失败，彻底放弃:', e);
+          logger.error('文本发送也失败:', e);
         }
       }
     }
   }
 
-  private static readonly FLUSH_INTERVAL_MS = 300;
-  private static readonly TYPEWRITER_CHUNK_SIZE = 20;
-  private static readonly TYPEWRITER_DELAY_MS = 150;
-
   /**
-   * 打字机效果刷新 — 将完整文本分步推送到 AI Card
-   * 从 lastSentText 位置开始，每次多显示一段文本，间隔 150ms
+   * 获取当前卡片的内容
    */
-  private async typewriterFlush(stream: ActiveStream): Promise<void> {
-    if (!stream.card || !stream.fullText) return;
-
-    const text = stream.fullText;
-    let cursor = stream.lastSentText.length;
-
-    if (cursor >= text.length) return;
-
-    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-    while (cursor < text.length) {
-      cursor = Math.min(cursor + StreamingCardManager.TYPEWRITER_CHUNK_SIZE, text.length);
-      const partial = text.slice(0, cursor);
-
-      try {
-        await this.cardService.streamUpdate(stream.card, partial, false);
-      } catch (error) {
-        logger.error('打字机推送失败，跳过:', error);
-        break;
-      }
-
-      if (cursor < text.length) {
-        await sleep(StreamingCardManager.TYPEWRITER_DELAY_MS);
-      }
-    }
-
-    stream.lastSentText = text;
-    stream.lastSentAt = Date.now();
+  private getCurrentCardContent(stream: ActiveStream): string {
+    return stream.fullText.substring(stream.cardContentOffset);
   }
 
   /**
-   * 启动定时刷新器 — 每 300ms 将累积文本推送到 AI Card 或降级通道
-   * 改进：每次只推送一小段新文本（打字机效果），而不是全部
+   * 分卡：finalize 当前卡片，创建新卡片
+   */
+  private async splitCard(
+    stream: ActiveStream,
+    sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
+  ): Promise<void> {
+    if (stream.isSplitting || stream.degraded || !stream.card) return;
+    stream.isSplitting = true;
+
+    try {
+      // Finalize 当前卡片
+      const currentContent = this.getCurrentCardContent(stream);
+      const truncated = truncateCardContent(currentContent);
+      const partLabel = stream.cardPartIndex > 0 ? ` (Part ${stream.cardPartIndex + 1})` : '';
+      const finalContent = truncated + `\n\n---\n*↓ 内容继续到下一张卡片${partLabel}...*`;
+
+      logger.log('Card split: finalizing current card', {
+        conversationId: stream.conversationId,
+        part: stream.cardPartIndex + 1,
+        contentLength: currentContent.length,
+      });
+
+      // 完成当前卡片
+      await this.cardService.streamUpdate(stream.card, finalContent, false);
+      await this.cardService.finish(stream.card, finalContent);
+
+      // 创建新卡片
+      const newCard = await this.cardService.createCard(
+        stream.conversationId,
+        stream.senderType,
+        ''
+      );
+
+      if (newCard) {
+        stream.card = newCard;
+        logger.log('Card split: new card created', {
+          conversationId: stream.conversationId,
+          part: stream.cardPartIndex + 2,
+          cardInstanceId: newCard.cardInstanceId,
+        });
+      } else {
+        logger.warn('Card split: failed to create new card, degrading');
+        stream.degraded = true;
+      }
+
+      stream.cardPartIndex++;
+      stream.cardContentOffset = stream.fullText.length;
+      stream.lastSentText = '';
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      logger.error('Card split failed', { error: message });
+    } finally {
+      stream.isSplitting = false;
+    }
+  }
+
+  /**
+   * 启动定时刷新器（防抖更新 + 自动分卡）
    */
   private startFlushTimer(
     stream: ActiveStream,
     sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
   ): void {
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     stream.updateTimer = setInterval(async () => {
-      if (stream.finished) return;
+      if (stream.finished || stream.isUpdating || stream.isSplitting) return;
 
       const currentText = stream.fullText;
       if (currentText.length <= stream.lastSentText.length) return;
 
-      // 打字机效果：每次只推送一小段新文本（20 字符）
-      const nextCursor = Math.min(
-        stream.lastSentText.length + StreamingCardManager.TYPEWRITER_CHUNK_SIZE,
-        currentText.length
-      );
-      const partialText = currentText.slice(0, nextCursor);
-
-      if (!stream.degraded && stream.card) {
-        try {
-          await this.cardService.streamUpdate(stream.card, partialText, false);
-          stream.lastSentText = partialText;
-          stream.lastSentAt = Date.now();
-        } catch (error) {
-          logger.error('流式更新失败:', error);
-          stream.failureCount++;
-          if (stream.failureCount >= 3) {
-            logger.warn('连续失败 3 次，降级到 sessionWebhook 模式');
-            stream.degraded = true;
-          }
-        }
-      } else if (sendMarkdownFn) {
-        const sent = await sendMarkdownFn(stream.conversationId, 'AI 回复', partialText);
-        if (sent) {
-          stream.lastSentText = partialText;
-          stream.lastSentAt = Date.now();
-        }
+      // 检查是否需要分卡
+      const cardContent = this.getCurrentCardContent(stream);
+      if (cardContent.length > CARD_SPLIT_THRESHOLD && !stream.degraded && stream.card) {
+        await this.splitCard(stream, sendMarkdownFn);
+        return;
       }
-    }, StreamingCardManager.FLUSH_INTERVAL_MS);
+
+      const currentContent = truncateCardContent(cardContent);
+      if (currentContent === stream.lastSentText) return;
+
+      stream.isUpdating = true;
+      try {
+        if (!stream.degraded && stream.card) {
+          await this.cardService.streamUpdate(stream.card, currentContent, false);
+          stream.lastSentText = currentContent;
+          stream.lastSentAt = Date.now();
+          logger.log('Card updated (debounced)', {
+            conversationId: stream.conversationId,
+            part: stream.cardPartIndex + 1,
+            contentLength: currentContent.length,
+          });
+        } else if (sendMarkdownFn) {
+          await sendMarkdownFn(stream.conversationId, 'AI 回复', currentContent);
+          stream.lastSentText = currentContent;
+          stream.lastSentAt = Date.now();
+        }
+      } catch (error) {
+        logger.error('Card update failed:', error);
+        stream.failureCount++;
+        if (stream.failureCount >= 3) {
+          logger.warn('连续失败 3 次，降级到 sessionWebhook 模式');
+          stream.degraded = true;
+        }
+      } finally {
+        stream.isUpdating = false;
+      }
+    }, CARD_UPDATE_INTERVAL);
   }
 
   /**
@@ -365,7 +466,7 @@ export class StreamingCardManager {
   }
 
   /**
-   * 销毁管理器，释放所有资源
+   * 销毁管理器
    */
   destroy(): void {
     if (this.cleanupTimer) {

@@ -99,6 +99,27 @@ describe('CommandHandler', () => {
     expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
   });
 
+  test('handles /new command without resetSession', async () => {
+    const parsed = parseCommand('/new')!;
+    const result = await handler.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('会话已完全重置');
+    expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
+  });
+
+  test('handles /new command with resetSession', async () => {
+    const mockResetSession = jest.fn().mockResolvedValue(true);
+    const depsWithReset: CommandDeps = {
+      ...deps,
+      resetSession: mockResetSession,
+    };
+    const h = new CommandHandler(depsWithReset);
+    const parsed = parseCommand('/new')!;
+    const result = await h.handle(parsed, 'user1', 'conv1');
+    expect(result).toContain('会话已完全重置');
+    expect(mockSessionManager.endSession).toHaveBeenCalledWith('conv1');
+    expect(mockResetSession).toHaveBeenCalledWith('conv1');
+  });
+
   test('handles /remember with insufficient args', async () => {
     const parsed = parseCommand('/remember key')!;
     const result = await handler.handle(parsed, 'user1', 'conv1');
