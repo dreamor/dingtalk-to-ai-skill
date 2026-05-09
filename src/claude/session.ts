@@ -483,6 +483,7 @@ export class ClaudeSession {
       console.warn('[ClaudeSession] 无法解析 JSON:', line.substring(0, 200));
       return;
     }
+    console.log(`[Session] handleLine: type=${event.type}`);
 
     // 收到任何有效事件时，若仍在等待初始化，立即 resolve（新版 CLI 可能不发 system.init）
     if (this.initResolve && event.type !== 'system') {
@@ -556,13 +557,21 @@ export class ClaudeSession {
 
     for (const block of event.message.content) {
       if (block.type === 'text') {
+        console.log(
+          `[Session] handleAssistantEvent: text block, length=${block.text.length}, preview="${block.text.substring(0, 60).replace(/"/g, '\\"')}"`
+        );
         this.accumulatedText += block.text;
         this.callbacks.onText?.(block.text);
       } else if (block.type === 'thinking') {
+        console.log(`[Session] handleAssistantEvent: thinking block, length=${block.text.length}`);
         this.callbacks.onThinking?.(block.text);
       } else if (block.type === 'tool_use') {
+        console.log(`[Session] handleAssistantEvent: tool_use block, name=${block.name}`);
         this.callbacks.onToolUse?.(block.name, block.input);
       } else if (block.type === 'tool_result') {
+        console.log(
+          `[Session] handleAssistantEvent: tool_result block, tool_use_id=${block.tool_use_id}`
+        );
         this.callbacks.onToolResult?.(block.tool_use_id, block.content);
       }
     }
@@ -570,6 +579,9 @@ export class ClaudeSession {
 
   /** 处理 result 事件（请求完成） */
   private handleResultEvent(event: ResultEvent): void {
+    console.log(
+      `[Session] handleResultEvent: result.length=${(event.result || this.accumulatedText || '').length}, executionMs=${Date.now() - this.startTime}`
+    );
     const executionTime = Date.now() - this.startTime;
 
     if (this.pendingResolve) {

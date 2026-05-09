@@ -840,9 +840,18 @@ export class GatewayServer {
               {
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onText: async (text: string) => {
+                  console.log(
+                    `[Gateway] onText callback fired: "${text.substring(0, 80).replace(/"/g, '\\"')}"`
+                  );
                   const filtered = displayFilter.filter({ type: 'text', content: text });
                   if (filtered.shouldSend && filtered.content) {
+                    console.log(
+                      `[Gateway] onText: filtered.shouldSend=true, appending ${filtered.content.length} chars`
+                    );
                     await streamHandle.appendChunk(filtered.content);
+                    console.log(`[Gateway] onText: appendChunk done`);
+                  } else {
+                    console.log(`[Gateway] onText: filtered.shouldSend=false, skipping`);
                   }
                 },
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises

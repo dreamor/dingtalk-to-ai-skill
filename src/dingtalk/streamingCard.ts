@@ -31,8 +31,8 @@ const logger = createSafeLogger('StreamingCard');
 
 // ==================== 配置常量 ====================
 
-/** 卡片更新防抖间隔（毫秒） */
-const CARD_UPDATE_INTERVAL = 200;
+/** 卡片更新最小间隔（毫秒），参考 dingtalk-openclaw-connector updateInterval */
+const CARD_UPDATE_INTERVAL = 800;
 
 /** 单个卡片最大字符数 */
 const MAX_CARD_CONTENT = 8000;
@@ -401,44 +401,56 @@ export class StreamingCardManager {
   }
 
   /**
-   * 启动定时刷新器（防抖更新 + 自动分卡）
+   * 启动定时刷新器
+   * 参考 dingtalk-openclaw-connector: 用 lastSentAt 时间戳控制最小更新间隔
+   * 首次更新立即触发，后续按 CARD_UPDATE_INTERVAL 控制频率
+   * 与全局 token-bucket 限流器配合使用
    */
   private startFlushTimer(
     stream: ActiveStream,
     sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
   ): void {
+    // 用 100ms 快速轮询间隔（检测时间条件是否满足）
     stream.updateTimer = setInterval(() => {
       void (async () => {
         if (stream.finished || stream.isUpdating || stream.isSplitting) return;
 
-        const currentText = stream.fullText;
-        if (currentText.length <= stream.lastSentText.length) return;
+        const now = Date.now();
+
+        // 参考项目模式：检查距上次更新的时间间隔
+        // 首次更新(lastSentAt===0)立即触发，后续等待 minInterval
+        if (stream.lastSentAt > 0 && now - stream.lastSentAt < CARD_UPDATE_INTERVAL) {
+          return; // 距上次发送未满 interval，跳过
+        }
+
+        const cardContent = this.getCurrentCardContent(stream);
+        const currentContent = truncateCardContent(cardContent);
+
+        // 内容和上次一样，无需更新
+        if (currentContent === stream.lastSentText) return;
 
         // 检查是否需要分卡
-        const cardContent = this.getCurrentCardContent(stream);
         if (cardContent.length > CARD_SPLIT_THRESHOLD && !stream.degraded && stream.card) {
           await this.splitCard(stream, sendMarkdownFn);
           return;
         }
-
-        const currentContent = truncateCardContent(cardContent);
-        if (currentContent === stream.lastSentText) return;
 
         stream.isUpdating = true;
         try {
           if (!stream.degraded && stream.card) {
             await this.cardService.streamUpdate(stream.card, currentContent, false);
             stream.lastSentText = currentContent;
-            stream.lastSentAt = Date.now();
-            logger.log('Card updated (debounced)', {
+            stream.lastSentAt = now;
+            logger.log('Card updated (lastSentAt gating)', {
               conversationId: stream.conversationId,
               part: stream.cardPartIndex + 1,
               contentLength: currentContent.length,
+              deltaMs: stream.lastSentAt > 0 ? now - stream.lastSentAt : 0,
             });
           } else if (sendMarkdownFn) {
             await sendMarkdownFn(stream.conversationId, 'AI 回复', currentContent);
             stream.lastSentText = currentContent;
-            stream.lastSentAt = Date.now();
+            stream.lastSentAt = now;
           }
         } catch (error) {
           logger.error('Card update failed:', error);
@@ -451,7 +463,7 @@ export class StreamingCardManager {
           stream.isUpdating = false;
         }
       })();
-    }, CARD_UPDATE_INTERVAL);
+    }, 100); // 100ms 快速轮询，实际更新频率由 lastSentAt 控制
   }
 
   /**

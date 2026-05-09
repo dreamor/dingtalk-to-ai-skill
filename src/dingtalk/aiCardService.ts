@@ -148,55 +148,47 @@ function ensureTableBlankLines(text: string): string {
 }
 
 /**
- * 构建 createAndDeliver 请求体
+ * 构建卡片创建请求体（create 步骤）
+ * 参考 dingtalk-openclaw-connector: POST /v1.0/card/instances
  */
-function buildCreateAndDeliverBody(
-  cardInstanceId: string,
-  target: CardTarget,
-  robotCode: string,
-  cardTemplateId: string
-): Record<string, unknown> {
-  const base = {
-    userId: target.userId,
+function buildCreateBody(cardInstanceId: string, cardTemplateId: string): Record<string, unknown> {
+  return {
     cardTemplateId,
     outTrackId: cardInstanceId,
-    callbackType: 'STREAM',
     cardData: {
       cardParamMap: {
-        msgContent: '',
         config: JSON.stringify({ autoLayout: true }),
       },
     },
-    userIdType: 1,
+    callbackType: 'STREAM',
+    imGroupOpenSpaceModel: { supportForward: true },
+    imRobotOpenSpaceModel: { supportForward: true },
   };
+}
 
+/**
+ * 构建卡片投放请求体（deliver 步骤）
+ * 参考 dingtalk-openclaw-connector: POST /v1.0/card/instances/deliver
+ */
+function buildDeliverBody(cardInstanceId: string, target: CardTarget): Record<string, unknown> {
   if (target.type === 'group') {
     return {
-      ...base,
+      outTrackId: cardInstanceId,
+      userIdType: 1,
       openSpaceId: `dtv1.card//IM_GROUP.${target.openConversationId}`,
-      imGroupOpenSpaceModel: {
-        supportForward: true,
-      },
       imGroupOpenDeliverModel: {
-        robotCode,
+        robotCode: String(config.dingtalk.appKey),
       },
     };
   }
 
   return {
-    ...base,
+    outTrackId: cardInstanceId,
+    userIdType: 1,
     openSpaceId: `dtv1.card//IM_ROBOT.${target.userId}`,
-    imRobotOpenSpaceModel: {
-      supportForward: true,
-      lastMessageI18n: { ZH_CN: 'AI 正在思考...' },
-      searchSupport: {
-        searchIcon: '',
-        searchDesc: 'AI 对话',
-      },
-    },
     imRobotOpenDeliverModel: {
       spaceType: 'IM_ROBOT',
-      robotCode,
+      robotCode: String(config.dingtalk.appKey),
       extension: {
         dynamicSummary: 'true',
       },
@@ -234,16 +226,20 @@ export class AICardService {
       const cardInstanceId = `card_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const cardTemplateId = config.streaming.cardTemplateId || DEFAULT_CARD_TEMPLATE_ID;
 
-      logger.log(`开始创建并投放卡片：${targetDesc}, outTrackId=${cardInstanceId}`);
+      logger.log(`开始创建卡片：${targetDesc}, outTrackId=${cardInstanceId}`);
 
-      const body = buildCreateAndDeliverBody(
-        cardInstanceId,
-        target,
-        String(config.dingtalk.appKey),
-        cardTemplateId
-      );
+      // 步骤 1: 创建卡片实例 (参考: dingtalk-openclaw-connector POST /v1.0/card/instances)
+      const createBody = buildCreateBody(cardInstanceId, cardTemplateId);
+      await axios.post(`${DINGTALK_API}/v1.0/card/instances`, createBody, {
+        headers: {
+          'x-acs-dingtalk-access-token': token,
+          'Content-Type': 'application/json',
+        },
+      });
 
-      await axios.post(`${DINGTALK_API}/v1.0/card/instances/createAndDeliver`, body, {
+      // 步骤 2: 投放卡片到目标用户/群 (参考: dingtalk-openclaw-connector POST /v1.0/card/instances/deliver)
+      const deliverBody = buildDeliverBody(cardInstanceId, target);
+      await axios.post(`${DINGTALK_API}/v1.0/card/instances/deliver`, deliverBody, {
         headers: {
           'x-acs-dingtalk-access-token': token,
           'Content-Type': 'application/json',
