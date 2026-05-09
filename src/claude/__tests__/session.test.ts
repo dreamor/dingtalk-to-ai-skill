@@ -86,10 +86,11 @@ describe('ClaudeSession', () => {
 
     // Verify buildArgs produces correct stream-json args
     const args = (session as unknown as { buildArgs: () => string[] }).buildArgs();
-    expect(args).not.toContain('--print');
+    expect(args).toContain('-p'); // 非交互模式，启用 --input-format/--output-format
     expect(args).toContain('stream-json');
     expect(args).toContain('--input-format');
     expect(args).toContain('--output-format');
+    expect(args).toContain('--include-partial-messages'); // 流式输出中间文本块
     expect(args).toContain('--verbose');
     expect(args).toContain('--bare');
     expect(args).toContain('--dangerously-skip-permissions');
@@ -110,9 +111,16 @@ describe('ClaudeSession', () => {
     expect(args).toContain('--dangerously-skip-permissions');
   });
 
-  it('should reject send when not alive', async () => {
+  it('should reject send when busy', async () => {
     const session = new ClaudeSession({ command: 'claude' });
-    await expect(session.send('hello')).rejects.toThrow('Session not alive');
+    (session as unknown as { state: SessionState }).state = 'busy';
+    await expect(session.send('hello')).rejects.toThrow('busy');
+  });
+
+  it('should attempt restart when session is closed', async () => {
+    const session = new ClaudeSession({ command: 'claude' });
+    // Default state is 'closed' — send() should try to start(), which fails without a real CLI
+    await expect(session.send('hello')).rejects.toThrow();
   });
 
   it('should reject send when busy', async () => {

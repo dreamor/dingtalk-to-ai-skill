@@ -310,23 +310,39 @@ export class AICardService {
           },
         };
 
-        await this.putWithRetry(
-          `${DINGTALK_API}/v1.0/card/instances`,
-          statusBody,
-          card.accessToken,
-          'INPUTING'
+        logger.log(
+          `切换 INPUTING 状态：outTrackId=${card.cardInstanceId}, contentLen=${content.length}`
         );
+
+        try {
+          await this.putWithRetry(
+            `${DINGTALK_API}/v1.0/card/instances`,
+            statusBody,
+            card.accessToken,
+            'INPUTING'
+          );
+          logger.log('INPUTING 状态切换成功');
+        } catch (inputErr) {
+          const inputAxiosErr = inputErr as AxiosError;
+          logger.error(
+            `INPUTING 状态切换失败：status=${inputAxiosErr?.response?.status}, data=${JSON.stringify(inputAxiosErr?.response?.data)}`
+          );
+          // INPUTING 失败不阻断后续流式更新
+        }
 
         card.inputingStarted = true;
       }
 
       // 构建流式更新请求体
+      // 参考: https://open.dingtalk.com/document/development/api-streamingupdate
+      // key: 需要流式更新的变量名（对应卡片模板中的变量）
+      // content: 流式更新的内容（API 要求字段名为 content，不是 msgContent）
       const fixedContent = ensureTableBlankLines(content);
       const body = {
         outTrackId: card.cardInstanceId,
         guid: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         key: 'msgContent',
-        msgContent: fixedContent,
+        content: fixedContent,
         isFull: true,
         isFinalize: finished,
         isError: false,
@@ -345,7 +361,12 @@ export class AICardService {
       logger.log(`流式更新响应：status=${response.status}, data=${JSON.stringify(response.data)}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error(`流式更新失败：${errorMessage}`);
+      const axiosErr = err as AxiosError;
+      const status = axiosErr?.response?.status;
+      const errData = axiosErr?.response?.data;
+      logger.error(
+        `流式更新失败：status=${status}, message=${errorMessage}, data=${JSON.stringify(errData)}, cardInstanceId=${card.cardInstanceId}, contentLen=${content.length}, finished=${finished}`
+      );
 
       if (isQpsLimitError(err)) {
         logger.warn('触发 QPS 限流，退避 2 秒后重试...');
@@ -356,6 +377,11 @@ export class AICardService {
         } catch (_retryErr) {
           logger.error('QPS 限流重试失败，跳过本次更新');
         }
+      } else if (status === 400) {
+        // 400 通常表示请求体格式错误或卡片状态不正确
+        logger.error(
+          `流式更新 400 错误详情：inputingStarted=${card.inputingStarted}, cardInstanceId=${card.cardInstanceId}, contentLen=${content.length}`
+        );
       } else {
         logger.error(`非 QPS 错误，跳过本次更新：${errorMessage}`);
       }

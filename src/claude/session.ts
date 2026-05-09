@@ -92,7 +92,17 @@ export interface ControlRequestEvent {
   [key: string]: unknown;
 }
 
-export type ClaudeEvent = SystemInitEvent | AssistantEvent | ResultEvent | ControlRequestEvent;
+export interface StreamEvent {
+  type: 'stream_event';
+  [key: string]: unknown;
+}
+
+export type ClaudeEvent =
+  | SystemInitEvent
+  | AssistantEvent
+  | ResultEvent
+  | ControlRequestEvent
+  | StreamEvent;
 
 /** 会话配置 */
 export interface ClaudeSessionConfig {
@@ -152,6 +162,14 @@ export class ClaudeSession {
   private readonly config: Required<ClaudeSessionConfig>;
   private callbacks: SessionCallbacks = {};
   private static cachedEnv: Record<string, string> | null = null;
+  /**
+   * 跟踪上一次 assistant 事件的完整文本长度。
+   * --include-partial-messages 模式下，每个 assistant 事件包含全量文本（非增量），
+   * 需要计算 delta 才能正确触发 onText 回调实现打字机效果。
+   */
+  private previousAssistantText = '';
+  /** -p 模式下 result 事件已处理，进程即将正常退出 */
+  private resultReceived = false;
 
   constructor(sessionConfig: ClaudeSessionConfig) {
     this.config = {
@@ -199,9 +217,12 @@ export class ClaudeSession {
    * 等待最多 120 秒，所有 hooks 响应完成或超时则进入 ready。
    */
   async start(): Promise<void> {
-    if (this.process) {
+    if (this.process && this.state !== 'closed' && this.state !== 'error') {
       throw new Error('Session already started');
     }
+
+    // 清理旧进程状态（--resume 重启场景）
+    this.cleanup();
 
     this.setState('starting');
     this.hookStarted = 0;
@@ -234,20 +255,33 @@ export class ClaudeSession {
 
   /**
    * 发送用户消息并等待完整响应
+   *
+   * -p 模式下 CLI 处理完请求后会退出，下次 send 时自动 --resume 恢复会话。
    */
   async send(message: string, callbacks?: SessionCallbacks): Promise<SessionResult> {
-    if (!this.isAlive) {
-      throw new Error(`Session not alive (state: ${this.state})`);
-    }
-
     if (this.state === 'busy') {
       throw new Error('Session is busy processing another request');
+    }
+
+    // -p 模式下进程在处理完请求后退出，需要通过 --resume 重启
+    if (this.state === 'closed' || this.state === 'error') {
+      if (this.sessionId) {
+        console.log(`[ClaudeSession] 进程已退出，使用 --resume ${this.sessionId} 恢复会话`);
+        this.config.resumeSessionId = this.sessionId;
+      }
+      await this.start();
+    }
+
+    if (!this.isAlive) {
+      throw new Error(`Session not alive (state: ${this.state})`);
     }
 
     this.setState('busy');
     this.clearIdleTimer();
     this.startTime = Date.now();
     this.accumulatedText = '';
+    this.previousAssistantText = '';
+    this.resultReceived = false;
 
     // 合并临时回调
     if (callbacks) {
@@ -355,10 +389,12 @@ export class ClaudeSession {
   /** 构建命令行参数 */
   private buildArgs(): string[] {
     const args: string[] = [
+      '-p', // 非交互模式：启用 --input-format/--output-format（CLI 要求 -p 才生效）
       '--input-format',
       'stream-json',
       '--output-format',
       'stream-json',
+      '--include-partial-messages', // 流式输出中间文本块（打字机效果必需）
       '--bare',
       '--verbose',
     ];
@@ -454,20 +490,32 @@ export class ClaudeSession {
     this.process.on('exit', (code, signal) => {
       console.log(`[ClaudeSession] 进程退出: code=${code}, signal=${signal}`);
 
-      if (this.state !== 'closing' && this.state !== 'closed') {
-        // 异常退出
-        const error = new Error(`Process exited unexpectedly: code=${code}, signal=${signal}`);
-        this.callbacks.onError?.(error);
-
-        if (this.pendingReject) {
-          this.pendingReject(error);
-          this.pendingResolve = null;
-          this.pendingReject = null;
-        }
-
-        this.setState('error');
+      if (this.state === 'closing' || this.state === 'closed') {
+        this.cleanup();
+        return;
       }
 
+      // -p 模式下，进程处理完请求后正常退出（code=0），result 事件已被处理
+      // 静默设置 closed 状态，不触发 onStateChange（避免 SessionPool 删除会话条目）
+      // send() 中的 getOrCreate 重试逻辑会在下次调用时通过 --resume 恢复
+      if (code === 0 && this.resultReceived) {
+        console.log('[ClaudeSession] -p 模式正常退出，标记为 closed（下次 send 将 --resume 恢复）');
+        this.state = 'closed'; // 直接赋值，不触发 onStateChange
+        this.cleanup();
+        return;
+      }
+
+      // 异常退出
+      const error = new Error(`Process exited unexpectedly: code=${code}, signal=${signal}`);
+      this.callbacks.onError?.(error);
+
+      if (this.pendingReject) {
+        this.pendingReject(error);
+        this.pendingResolve = null;
+        this.pendingReject = null;
+      }
+
+      this.setState('error');
       this.cleanup();
     });
   }
@@ -504,6 +552,9 @@ export class ClaudeSession {
         break;
       case 'control_request':
         this.handleControlRequest(event);
+        break;
+      case 'stream_event':
+        // --include-partial-messages 产生的心跳/进度事件，无需处理
         break;
       default:
         console.log('[ClaudeSession] 未知事件类型:', (event as Record<string, unknown>).type);
@@ -551,20 +602,51 @@ export class ClaudeSession {
     }
   }
 
-  /** 处理 assistant 事件（文本、工具调用、思考） */
+  /** 处理 assistant 事件（文本、工具调用、思考）
+   *
+   * --include-partial-messages 模式下，每个 assistant 事件包含全量文本（非增量）：
+   *   事件1: text="Hello"
+   *   事件2: text="Hello world"
+   *   事件3: text="Hello world, how are you?"
+   * 需要计算 delta 才能正确触发 onText 回调实现打字机效果。
+   *
+   * 兼容旧模式（增量文本）：每个事件只包含新增的文本块。
+   */
   private handleAssistantEvent(event: AssistantEvent): void {
     if (!event.message?.content) return;
 
     for (const block of event.message.content) {
       if (block.type === 'text') {
-        console.log(
-          `[Session] handleAssistantEvent: text block, length=${block.text.length}, preview="${block.text.substring(0, 60).replace(/"/g, '\\"')}"`
-        );
-        this.accumulatedText += block.text;
-        this.callbacks.onText?.(block.text);
+        const text = block.text;
+
+        if (
+          text.startsWith(this.previousAssistantText) &&
+          text.length > this.previousAssistantText.length
+        ) {
+          // Partial message 模式：text 包含全量文本，提取增量部分
+          const delta = text.substring(this.previousAssistantText.length);
+          this.accumulatedText += delta;
+          this.previousAssistantText = text;
+          console.log(
+            `[Session] handleAssistantEvent: partial text delta=${delta.length}, total=${text.length}, preview="${delta.substring(0, 60).replace(/"/g, '\\"')}"`
+          );
+          this.callbacks.onText?.(delta);
+        } else if (text !== this.previousAssistantText) {
+          // 增量模式或首块：text 是新的文本块
+          this.accumulatedText += text;
+          this.previousAssistantText += text;
+          console.log(
+            `[Session] handleAssistantEvent: text chunk length=${text.length}, preview="${text.substring(0, 60).replace(/"/g, '\\"')}"`
+          );
+          this.callbacks.onText?.(text);
+        }
+        // text === previousAssistantText: 重复事件，跳过
       } else if (block.type === 'thinking') {
-        console.log(`[Session] handleAssistantEvent: thinking block, length=${block.text.length}`);
-        this.callbacks.onThinking?.(block.text);
+        const thinkingText = block.text ?? '';
+        console.log(
+          `[Session] handleAssistantEvent: thinking block, length=${thinkingText.length}`
+        );
+        this.callbacks.onThinking?.(thinkingText);
       } else if (block.type === 'tool_use') {
         console.log(`[Session] handleAssistantEvent: tool_use block, name=${block.name}`);
         this.callbacks.onToolUse?.(block.name, block.input);
@@ -584,6 +666,14 @@ export class ClaudeSession {
     );
     const executionTime = Date.now() - this.startTime;
 
+    // 保存 sessionId 供 --resume 使用
+    if (event.session_id) {
+      this.sessionId = event.session_id;
+    }
+
+    // 标记 result 已接收（-p 模式下进程即将退出）
+    this.resultReceived = true;
+
     if (this.pendingResolve) {
       this.pendingResolve({
         success: true,
@@ -595,8 +685,8 @@ export class ClaudeSession {
       this.pendingReject = null;
     }
 
-    this.setState('ready');
-    this.resetIdleTimer();
+    // -p 模式：进程即将退出，不设 ready（避免 exit handler 竞争）
+    // exit handler 会将状态设为 closed，下次 send() 时通过 --resume 恢复
   }
 
   /** 处理权限请求（dangerously-skip-permissions 模式下不应出现，但做兜底处理） */

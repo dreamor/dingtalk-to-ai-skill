@@ -1,7 +1,7 @@
 /**
  * 媒体下载器 - 从钉钉下载语音、图片等媒体文件
  */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import axios from 'axios';
 import { DingtalkService } from '../dingtalk/dingtalk';
@@ -57,9 +57,9 @@ export class MediaDownloader {
     });
 
     const buffer = Buffer.from(response.data);
-    const ext = format || this.guessExtension(response.headers['content-type'] || '');
-    const mimeType =
-      MIME_MAP[ext] || response.headers['content-type'] || 'application/octet-stream';
+    const contentType = String(response.headers['content-type'] || '');
+    const ext = format || this.guessExtension(contentType);
+    const mimeType = MIME_MAP[ext] || contentType || 'application/octet-stream';
 
     console.log(`[Media] Downloaded: ${buffer.length} bytes, type: ${mimeType}`);
 
