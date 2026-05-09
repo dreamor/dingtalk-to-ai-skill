@@ -19,8 +19,6 @@ import type { StreamingConfig } from '../config';
 import { AICardService, type AICardInstance } from './aiCardService';
 import { createSafeLogger } from '../utils/logger';
 import {
-  MAX_RESULT_CHARS,
-  MAX_RESULT_LINES,
   QUIET_TOOLS,
   READ_ONLY_TOOLS,
   TOOL_ICONS,
@@ -228,8 +226,8 @@ export class StreamingCardManager {
   ): StreamCardHandle {
     return {
       outTrackId: stream.outTrackId,
-      appendChunk: async (chunk: string) => {
-        if (stream.finished) return;
+      appendChunk: (chunk: string): Promise<void> => {
+        if (stream.finished) return Promise.resolve();
 
         stream.fullText += chunk;
 
@@ -237,6 +235,7 @@ export class StreamingCardManager {
         if (!stream.updateTimer) {
           this.startFlushTimer(stream, sendMarkdownFn);
         }
+        return Promise.resolve();
       },
       getFullText: () => stream.fullText,
       finish: async (finalText?: string) => {
@@ -349,7 +348,7 @@ export class StreamingCardManager {
    */
   private async splitCard(
     stream: ActiveStream,
-    sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
+    _sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
   ): Promise<void> {
     if (stream.isSplitting || stream.degraded || !stream.card) return;
     stream.isSplitting = true;
@@ -408,48 +407,50 @@ export class StreamingCardManager {
     stream: ActiveStream,
     sendMarkdownFn?: (conversationId: string, title: string, text: string) => Promise<boolean>
   ): void {
-    stream.updateTimer = setInterval(async () => {
-      if (stream.finished || stream.isUpdating || stream.isSplitting) return;
+    stream.updateTimer = setInterval(() => {
+      void (async () => {
+        if (stream.finished || stream.isUpdating || stream.isSplitting) return;
 
-      const currentText = stream.fullText;
-      if (currentText.length <= stream.lastSentText.length) return;
+        const currentText = stream.fullText;
+        if (currentText.length <= stream.lastSentText.length) return;
 
-      // 检查是否需要分卡
-      const cardContent = this.getCurrentCardContent(stream);
-      if (cardContent.length > CARD_SPLIT_THRESHOLD && !stream.degraded && stream.card) {
-        await this.splitCard(stream, sendMarkdownFn);
-        return;
-      }
-
-      const currentContent = truncateCardContent(cardContent);
-      if (currentContent === stream.lastSentText) return;
-
-      stream.isUpdating = true;
-      try {
-        if (!stream.degraded && stream.card) {
-          await this.cardService.streamUpdate(stream.card, currentContent, false);
-          stream.lastSentText = currentContent;
-          stream.lastSentAt = Date.now();
-          logger.log('Card updated (debounced)', {
-            conversationId: stream.conversationId,
-            part: stream.cardPartIndex + 1,
-            contentLength: currentContent.length,
-          });
-        } else if (sendMarkdownFn) {
-          await sendMarkdownFn(stream.conversationId, 'AI 回复', currentContent);
-          stream.lastSentText = currentContent;
-          stream.lastSentAt = Date.now();
+        // 检查是否需要分卡
+        const cardContent = this.getCurrentCardContent(stream);
+        if (cardContent.length > CARD_SPLIT_THRESHOLD && !stream.degraded && stream.card) {
+          await this.splitCard(stream, sendMarkdownFn);
+          return;
         }
-      } catch (error) {
-        logger.error('Card update failed:', error);
-        stream.failureCount++;
-        if (stream.failureCount >= 3) {
-          logger.warn('连续失败 3 次，降级到 sessionWebhook 模式');
-          stream.degraded = true;
+
+        const currentContent = truncateCardContent(cardContent);
+        if (currentContent === stream.lastSentText) return;
+
+        stream.isUpdating = true;
+        try {
+          if (!stream.degraded && stream.card) {
+            await this.cardService.streamUpdate(stream.card, currentContent, false);
+            stream.lastSentText = currentContent;
+            stream.lastSentAt = Date.now();
+            logger.log('Card updated (debounced)', {
+              conversationId: stream.conversationId,
+              part: stream.cardPartIndex + 1,
+              contentLength: currentContent.length,
+            });
+          } else if (sendMarkdownFn) {
+            await sendMarkdownFn(stream.conversationId, 'AI 回复', currentContent);
+            stream.lastSentText = currentContent;
+            stream.lastSentAt = Date.now();
+          }
+        } catch (error) {
+          logger.error('Card update failed:', error);
+          stream.failureCount++;
+          if (stream.failureCount >= 3) {
+            logger.warn('连续失败 3 次，降级到 sessionWebhook 模式');
+            stream.degraded = true;
+          }
+        } finally {
+          stream.isUpdating = false;
         }
-      } finally {
-        stream.isUpdating = false;
-      }
+      })();
     }, CARD_UPDATE_INTERVAL);
   }
 

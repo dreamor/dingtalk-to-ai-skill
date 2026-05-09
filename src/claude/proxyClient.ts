@@ -15,16 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as net from 'net';
 
-import {
-  MAX_RESULT_CHARS,
-  MAX_RESULT_LINES,
-  QUIET_TOOLS,
-  READ_ONLY_TOOLS,
-  TOOL_ICONS,
-  shortenPath,
-  formatToolCall,
-  formatToolResult,
-} from '../utils/toolFormatter';
+import { formatToolCall, formatToolResult } from '../utils/toolFormatter';
 
 // ==================== 日志 ====================
 
@@ -293,7 +284,7 @@ export class ClaudeProxyClient {
 
       let msg: ClaudeStreamEvent;
       try {
-        msg = JSON.parse(line);
+        msg = JSON.parse(line) as ClaudeStreamEvent;
       } catch {
         continue;
       }
@@ -380,7 +371,7 @@ export class ClaudeProxyClient {
                   const combined = cmd + '\n' + output;
                   // 匹配包含路径分隔符的图片路径，避免误匹配纯文件名
                   const imgMatch = combined.match(
-                    /(?:[A-Za-z]:[\\\/]|[\/~][\w.\-\\\/]+)[\w.\-\\\/]*\.(?:png|jpg|jpeg|gif|bmp|webp)\b/i
+                    /(?:[A-Za-z]:[\\/]|[/~][\w.\-\\/]+)[\w.\-\\/]*\.(?:png|jpg|jpeg|gif|bmp|webp)\b/i
                   );
                   if (imgMatch) {
                     imagePath = imgMatch[0].replace(/\\/g, '/');

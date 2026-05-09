@@ -12,8 +12,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createHash } from 'crypto';
-import { config } from '../config';
-import type { MessageContext } from '../types/message';
 import { ClaudeProxyClient, type StreamMessageOptions } from './proxyClient';
 import { createSafeLogger } from '../utils/logger';
 
@@ -259,7 +257,7 @@ export class ProxyExecutor {
   /**
    * 重置指定会话
    */
-  async resetSession(conversationId: string): Promise<void> {
+  resetSession(conversationId: string): void {
     const session = this.sessions.get(conversationId);
     if (session) {
       session.client.stopProxy();

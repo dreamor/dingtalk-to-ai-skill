@@ -195,8 +195,8 @@ describe('ProxyExecutor', () => {
       expect(executor.getActiveSessionCount()).toBe(0);
     });
 
-    test('does nothing for non-existent session', async () => {
-      await expect(executor.resetSession('non-existent')).resolves.not.toThrow();
+    test('does nothing for non-existent session', () => {
+      expect(() => executor.resetSession('non-existent')).not.toThrow();
     });
   });
 
