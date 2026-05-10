@@ -49,6 +49,15 @@ const CLEANUP_INTERVAL_MS = 60 * 1000;
 /** 忙等待超时（毫秒） */
 const BUSY_WAIT_TIMEOUT_MS = 5000;
 
+/** 打字机效果：触发阈值（超过此长度的 chunk 视为完整响应，需要模拟流式） */
+const TYPEWRITER_THRESHOLD = 50;
+
+/** 打字机效果：每步喂入字符数 */
+const TYPEWRITER_CHUNK_SIZE = 20;
+
+/** 打字机效果：每步间隔（毫秒） */
+const TYPEWRITER_INTERVAL_MS = 150;
+
 /** 活跃的流式会话 */
 interface ActiveStream {
   /** 卡片唯一标识 */
@@ -83,6 +92,10 @@ interface ActiveStream {
   isSplitting: boolean;
   /** 是否正在更新（防抖） */
   isUpdating: boolean;
+  /** 打字机队列：待逐步喂入的文本 */
+  typewriterPending: string;
+  /** 打字机定时器 */
+  typewriterTimer: NodeJS.Timeout | null;
 }
 
 /** 流式卡片句柄 - 返回给调用者用于追加文本 */
@@ -209,6 +222,8 @@ export class StreamingCardManager {
       cardContentOffset: 0,
       isSplitting: false,
       isUpdating: false,
+      typewriterPending: '',
+      typewriterTimer: null,
     };
 
     this.streams.set(outTrackId, stream);
@@ -229,11 +244,21 @@ export class StreamingCardManager {
       appendChunk: (chunk: string): Promise<void> => {
         if (stream.finished) return Promise.resolve();
 
-        stream.fullText += chunk;
-
-        // 首次收到文本时启动定时刷新器
-        if (!stream.updateTimer) {
-          this.startFlushTimer(stream, sendMarkdownFn);
+        // 打字机模拟：大块文本（-p 模式一次性返回的完整响应）分片喂入，
+        // 小块文本（真流式 delta）直接追加
+        if (stream.typewriterTimer || chunk.length > TYPEWRITER_THRESHOLD) {
+          stream.typewriterPending += chunk;
+          if (!stream.typewriterTimer) {
+            if (!stream.updateTimer) {
+              this.startFlushTimer(stream, sendMarkdownFn);
+            }
+            this.startTypewriter(stream);
+          }
+        } else {
+          stream.fullText += chunk;
+          if (!stream.updateTimer) {
+            this.startFlushTimer(stream, sendMarkdownFn);
+          }
         }
         return Promise.resolve();
       },
@@ -241,6 +266,16 @@ export class StreamingCardManager {
       finish: async (finalText?: string) => {
         if (stream.finished) return;
         stream.finished = true;
+
+        // 立即刷入打字机队列中的剩余文本
+        if (stream.typewriterPending) {
+          stream.fullText += stream.typewriterPending;
+          stream.typewriterPending = '';
+        }
+        if (stream.typewriterTimer) {
+          clearInterval(stream.typewriterTimer);
+          stream.typewriterTimer = null;
+        }
 
         if (finalText !== undefined) {
           stream.fullText = finalText;
@@ -401,6 +436,35 @@ export class StreamingCardManager {
   }
 
   /**
+   * 启动打字机效果定时器
+   *
+   * 将大块文本（-p 模式一次性返回的完整响应）分片逐步喂入 fullText，
+   * 配合 startFlushTimer 的 800ms 间隔自然产生逐段推送效果。
+   */
+  private startTypewriter(stream: ActiveStream): void {
+    if (stream.typewriterTimer) return;
+
+    stream.typewriterTimer = setInterval(() => {
+      if (stream.finished || !stream.typewriterPending) {
+        if (stream.typewriterTimer) {
+          clearInterval(stream.typewriterTimer);
+          stream.typewriterTimer = null;
+        }
+        return;
+      }
+
+      const segment = stream.typewriterPending.substring(0, TYPEWRITER_CHUNK_SIZE);
+      stream.typewriterPending = stream.typewriterPending.substring(TYPEWRITER_CHUNK_SIZE);
+      stream.fullText += segment;
+
+      if (!stream.typewriterPending) {
+        clearInterval(stream.typewriterTimer!);
+        stream.typewriterTimer = null;
+      }
+    }, TYPEWRITER_INTERVAL_MS);
+  }
+
+  /**
    * 启动定时刷新器
    * 参考 dingtalk-openclaw-connector: 用 lastSentAt 时间戳控制最小更新间隔
    * 首次更新立即触发，后续按 CARD_UPDATE_INTERVAL 控制频率
@@ -473,6 +537,9 @@ export class StreamingCardManager {
     for (const stream of Array.from(this.streams.values())) {
       if (stream.updateTimer) {
         clearInterval(stream.updateTimer);
+      }
+      if (stream.typewriterTimer) {
+        clearInterval(stream.typewriterTimer);
       }
     }
     this.streams.clear();
