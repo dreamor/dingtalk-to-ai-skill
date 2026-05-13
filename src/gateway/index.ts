@@ -38,6 +38,7 @@ import {
   formatBusyMessage,
 } from './errorFormatter';
 import { RetrySender, type MessageSender } from './retrySender';
+import type { ProcessResult } from './queueConsumer';
 import { CardBuilder, CardSender } from '../dingtalk/cards';
 import { Scheduler } from '../scheduler';
 import { parseCommand } from '../commands/commandParser';
@@ -403,9 +404,8 @@ export class GatewayServer {
   async handleStreamMessage(msg: string, userId: string, userName: string): Promise<void> {
     console.log(`[Gateway] 收到 Stream 消息：用户 ${userName}(${userId}) - ${msg}`);
 
-    // 触发消息接收钩子
     hookRunner
-      .trigger('message_received' as HookEvent, {
+      .trigger('message_received', {
         userId,
         userName,
         conversationId: '',
@@ -419,11 +419,7 @@ export class GatewayServer {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const result = await this.processMessage({
-          msg,
-          userId,
-          userName,
-        });
+        const result = await this.processMessage({ msg, userId, userName });
 
         if (result.data?.conversationId) {
           conversationId = result.data.conversationId;
@@ -437,48 +433,8 @@ export class GatewayServer {
         }
 
         const accessToken = await this.dingtalkService.getAccessToken();
-        const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
-
-        if (result.success && result.data?.result) {
-          const markdownText = preprocessDingTalkMarkdown(renderMarkdown(result.data.result));
-
-          try {
-            await this.dingtalkService.sendMarkdownMessage(accessToken, replyTitle, markdownText);
-            // 触发消息已发送钩子
-            hookRunner
-              .trigger('message_sent' as HookEvent, {
-                userId,
-                userName,
-                conversationId,
-                content: result.data?.result?.substring(0, 200),
-              })
-              .catch(() => {});
-            return;
-          } catch (_sendError) {
-            console.error(`[Gateway] 发送回复失败，添加到重试队列`);
-            const queueId = generateMessageId();
-            this.retrySender.add(queueId, conversationId, 'markdown', markdownText, {
-              title: replyTitle,
-            });
-            await this.dingtalkService.sendTextMessage(
-              accessToken,
-              '📬 您的消息已收到，回复正在发送中，请稍候...'
-            );
-            return;
-          }
-        } else {
-          const errorMsg = formatError(result.message, result.data?.messageId);
-
-          try {
-            await this.dingtalkService.sendTextMessage(accessToken, errorMsg);
-            return;
-          } catch (_sendError) {
-            console.error(`[Gateway] 发送错误回复失败，添加到重试队列`);
-            const queueId = generateMessageId();
-            this.retrySender.add(queueId, conversationId, 'text', errorMsg);
-            return;
-          }
-        }
+        await this.sendReply(result, conversationId, accessToken, userId, userName);
+        return;
       } catch (error: unknown) {
         lastError = error instanceof Error ? error : new Error(String(error));
         console.error(`[Gateway] 第 ${attempt} 次处理失败:`, lastError.message);
@@ -491,6 +447,7 @@ export class GatewayServer {
       }
     }
 
+    // 所有重试均失败
     console.error('[Gateway] 消息处理最终失败:', lastError);
     try {
       const accessToken = await this.dingtalkService.getAccessToken();
@@ -507,6 +464,55 @@ export class GatewayServer {
       );
     } catch (_sendError) {
       console.error('[Gateway] 发送错误回复失败:', _sendError);
+    }
+  }
+
+  /**
+   * 发送回复消息（成功发 markdown，失败发 text），发送失败时加入重试队列
+   */
+  private async sendReply(
+    result: ProcessResult,
+    conversationId: string,
+    accessToken: string,
+    userId: string,
+    userName: string
+  ): Promise<void> {
+    const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
+
+    if (result.success && result.data?.result) {
+      const markdownText = preprocessDingTalkMarkdown(renderMarkdown(result.data.result));
+
+      try {
+        await this.dingtalkService.sendMarkdownMessage(accessToken, replyTitle, markdownText);
+        hookRunner
+          .trigger('message_sent', {
+            userId,
+            userName,
+            conversationId,
+            content: result.data?.result?.substring(0, 200),
+          })
+          .catch(() => {});
+      } catch (_sendError) {
+        console.error(`[Gateway] 发送回复失败，添加到重试队列`);
+        const queueId = generateMessageId();
+        this.retrySender.add(queueId, conversationId, 'markdown', markdownText, {
+          title: replyTitle,
+        });
+        await this.dingtalkService.sendTextMessage(
+          accessToken,
+          '📬 您的消息已收到，回复正在发送中，请稍候...'
+        );
+      }
+    } else {
+      const errorMsg = formatError(result.message, result.data?.messageId);
+
+      try {
+        await this.dingtalkService.sendTextMessage(accessToken, errorMsg);
+      } catch (_sendError) {
+        console.error(`[Gateway] 发送错误回复失败，添加到重试队列`);
+        const queueId = generateMessageId();
+        this.retrySender.add(queueId, conversationId, 'text', errorMsg);
+      }
     }
   }
 
@@ -775,54 +781,13 @@ export class GatewayServer {
 
       if (useStreaming) {
         // 流式输出模式 - 使用 AI Card
-        // conversationType 从 stream.ts 传递过来，用于区分群聊和单聊
         const senderType: 'group' | 'user' = request.conversationType || 'group';
         const streamHandle = await this.streamingCardManager!.startStream(
           session.conversationId,
           sessionWebhook || '',
           senderType,
-          async (convId, title, text) => {
-            try {
-              // 优先使用 sessionWebhook 发送（无需 accessToken）
-              if (sessionWebhook) {
-                await axios.post(
-                  sessionWebhook,
-                  {
-                    msgtype: 'markdown',
-                    markdown: { title, text },
-                  },
-                  { timeout: 10000 }
-                );
-                return true;
-              }
-              // 降级：使用 dingtalkService 发送
-              const accessToken = await this.dingtalkService.getAccessToken();
-              await this.dingtalkService.sendMarkdownMessage(accessToken, title, text);
-              return true;
-            } catch {
-              return false;
-            }
-          },
-          async (convId, text) => {
-            try {
-              if (sessionWebhook) {
-                await axios.post(
-                  sessionWebhook,
-                  {
-                    msgtype: 'text',
-                    text: { content: text },
-                  },
-                  { timeout: 10000 }
-                );
-                return true;
-              }
-              const accessToken = await this.dingtalkService.getAccessToken();
-              await this.dingtalkService.sendTextMessage(accessToken, text);
-              return true;
-            } catch {
-              return false;
-            }
-          },
+          this.createMarkdownSender(sessionWebhook),
+          this.createTextSender(sessionWebhook),
           userId || ''
         );
 
@@ -830,59 +795,18 @@ export class GatewayServer {
 
         try {
           if (usePersistentSession) {
-            // 持久化会话模式（消除冷启动）+ Display Filter
-            // 注意：streamCallbacks 已包含 onText，不需要额外的 onChunk 回调
+            const callbacks = this.createPersistentSessionCallbacks(displayFilter, streamHandle);
             result = await this.claudeCodeExecutor.executeSession(
               session.conversationId,
               msg,
               undefined,
               opencodeContext,
-              {
-                // eslint-disable-next-line @typescript-eslint/no-misused-promises
-                onText: async (text: string) => {
-                  console.log(
-                    `[Gateway] onText callback fired: "${text.substring(0, 80).replace(/"/g, '\\"')}"`
-                  );
-                  const filtered = displayFilter.filter({ type: 'text', content: text });
-                  if (filtered.shouldSend && filtered.content) {
-                    console.log(
-                      `[Gateway] onText: filtered.shouldSend=true, appending ${filtered.content.length} chars`
-                    );
-                    await streamHandle.appendChunk(filtered.content);
-                    console.log(`[Gateway] onText: appendChunk done`);
-                  } else {
-                    console.log(`[Gateway] onText: filtered.shouldSend=false, skipping`);
-                  }
-                },
-                // eslint-disable-next-line @typescript-eslint/no-misused-promises
-                onThinking: async (text: string) => {
-                  const filtered = displayFilter.filter({ type: 'thinking', content: text });
-                  if (filtered.shouldSend && filtered.content) {
-                    await streamHandle.appendChunk(filtered.content);
-                  }
-                },
-                // eslint-disable-next-line @typescript-eslint/no-misused-promises
-                onToolUse: async (name: string, input: Record<string, unknown>) => {
-                  const filtered = displayFilter.filter({
-                    type: 'tool_use',
-                    content: JSON.stringify(input).substring(0, 200),
-                    toolName: name,
-                  });
-                  if (filtered.shouldSend && filtered.content) {
-                    await streamHandle.appendChunk(filtered.content);
-                  }
-                },
-              }
+              callbacks
             );
           } else if (config.aiProvider === 'claude') {
             result = await this.claudeCodeExecutor.executeStream(
               msg,
-              async chunk => {
-                const filtered = displayFilter.filter({ type: 'text', content: chunk });
-                if (filtered.shouldSend && filtered.content) {
-                  await streamHandle.appendChunk(filtered.content);
-                }
-              },
+              this.createStreamChunkCallback(displayFilter, streamHandle),
               opencodeContext
             );
           } else {
@@ -895,19 +819,16 @@ export class GatewayServer {
             );
           }
         } catch (error: unknown) {
-          // AI 执行失败，记录错误并使用已积累的内容完成卡片
           console.error(`[${messageId}] 流式 AI 执行失败:`, error);
           const accumulatedText = streamHandle.getFullText() || 'AI 处理失败，请稍后重试';
           await streamHandle.finish(accumulatedText);
-          // 提前返回，不执行后续逻辑
           return {
             success: false,
             message: 'AI 处理失败',
           };
         }
 
-        // AI 执行成功，完成卡片
-        // 先刷新 DisplayFilter 缓冲区（quiet 模式下累积的文本）
+        // 刷新 DisplayFilter 缓冲区并完成卡片
         const flushed = displayFilter.flush();
         if (flushed.shouldSend && flushed.content) {
           await streamHandle.appendChunk(flushed.content);
@@ -996,6 +917,116 @@ export class GatewayServer {
     conversationId: string
   ): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
     return buildHistory(this.sessionManager, conversationId, 20);
+  }
+
+  /**
+   * 创建流式卡片的 markdown 降级发送回调
+   */
+  private createMarkdownSender(
+    sessionWebhook: string | undefined
+  ): (convId: string, title: string, text: string) => Promise<boolean> {
+    return async (_convId: string, title: string, text: string) => {
+      try {
+        if (sessionWebhook) {
+          await axios.post(
+            sessionWebhook,
+            { msgtype: 'markdown', markdown: { title, text } },
+            { timeout: 10000 }
+          );
+          return true;
+        }
+        const accessToken = await this.dingtalkService.getAccessToken();
+        await this.dingtalkService.sendMarkdownMessage(accessToken, title, text);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+  }
+
+  /**
+   * 创建流式卡片的文本降级发送回调
+   */
+  private createTextSender(
+    sessionWebhook: string | undefined
+  ): (convId: string, text: string) => Promise<boolean> {
+    return async (_convId: string, text: string) => {
+      try {
+        if (sessionWebhook) {
+          await axios.post(
+            sessionWebhook,
+            { msgtype: 'text', text: { content: text } },
+            { timeout: 10000 }
+          );
+          return true;
+        }
+        const accessToken = await this.dingtalkService.getAccessToken();
+        await this.dingtalkService.sendTextMessage(accessToken, text);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+  }
+
+  /**
+   * 创建持久化会话的流式回调（onText/onThinking/onToolUse）
+   */
+  private createPersistentSessionCallbacks(
+    displayFilter: DisplayFilter,
+    streamHandle: { appendChunk: (text: string) => Promise<void> }
+  ): import('../claude/session').SessionCallbacks {
+    return {
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
+      onText: async (text: string) => {
+        console.log(
+          `[Gateway] onText callback fired: "${text.substring(0, 80).replace(/"/g, '\\"')}"`
+        );
+        const filtered = displayFilter.filter({ type: 'text', content: text });
+        if (filtered.shouldSend && filtered.content) {
+          console.log(
+            `[Gateway] onText: filtered.shouldSend=true, appending ${filtered.content.length} chars`
+          );
+          await streamHandle.appendChunk(filtered.content);
+          console.log(`[Gateway] onText: appendChunk done`);
+        } else {
+          console.log(`[Gateway] onText: filtered.shouldSend=false, skipping`);
+        }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
+      onThinking: async (text: string) => {
+        const filtered = displayFilter.filter({ type: 'thinking', content: text });
+        if (filtered.shouldSend && filtered.content) {
+          await streamHandle.appendChunk(filtered.content);
+        }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-misused-promises
+      onToolUse: async (name: string, input: Record<string, unknown>) => {
+        const filtered = displayFilter.filter({
+          type: 'tool_use',
+          content: JSON.stringify(input).substring(0, 200),
+          toolName: name,
+        });
+        if (filtered.shouldSend && filtered.content) {
+          await streamHandle.appendChunk(filtered.content);
+        }
+      },
+    };
+  }
+
+  /**
+   * 创建非持久化会话的流式 chunk 回调（用于 Claude executeStream）
+   */
+  private createStreamChunkCallback(
+    displayFilter: DisplayFilter,
+    streamHandle: { appendChunk: (text: string) => Promise<void> }
+  ): (chunk: string) => Promise<void> {
+    return async (chunk: string) => {
+      const filtered = displayFilter.filter({ type: 'text', content: chunk });
+      if (filtered.shouldSend && filtered.content) {
+        await streamHandle.appendChunk(filtered.content);
+      }
+    };
   }
 
   /**

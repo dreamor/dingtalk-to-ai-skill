@@ -11,6 +11,7 @@ import { SessionManager } from '../session-manager';
 import { OpenCodeExecutor, MessageContext } from '../opencode';
 import { ClaudeCodeExecutor } from '../claude';
 import { UserMessage, AIMessage } from '../types/message';
+import type { Session } from '../types/session';
 import { generateMessageId } from '../utils/messageId';
 import { buildHistory } from '../utils/historyBuilder';
 import { config } from '../config';
@@ -186,23 +187,40 @@ export class QueueConsumer {
   }
 
   /**
-   * 内部消息处理逻辑
+   * 内部消息处理逻辑（编排方法）
    */
   private async processMessageInternal(message: UserMessage): Promise<ProcessResult> {
     const startTime = Date.now();
     const messageId = generateMessageId();
 
-    // 1. 消息去重检查
+    const validationError = this.validateAndPrepare(message, messageId);
+    if (validationError) return validationError;
+
+    const sessionSlot = await this.acquireSessionAndSlot(message);
+    if ('success' in sessionSlot && !sessionSlot.success) return sessionSlot;
+    const { session, requestId } = sessionSlot as { session: Session; requestId: string };
+
+    try {
+      const context = await this.buildExecutionContext(session, message);
+
+      const result = await this.executeAI(message.content, context);
+
+      return this.processResultAndSave(result, session, message, messageId, startTime);
+    } finally {
+      this.concurrencyController.releaseSlot(message.userId, requestId);
+    }
+  }
+
+  /**
+   * 验证消息（去重 + 限流），返回 null 表示通过
+   */
+  private validateAndPrepare(message: UserMessage, _messageId: string): ProcessResult | null {
     if (this.deduplicator.isDuplicate(message.content, message.userId)) {
       console.log(`[QueueConsumer] 检测到重复消息: ${message.id}`);
-      return {
-        success: false,
-        message: '消息已处理，请勿重复发送',
-      };
+      return { success: false, message: '消息已处理，请勿重复发送' };
     }
     this.deduplicator.record(message.content, message.userId);
 
-    // 2. 流量控制检查
     const rateLimitResult = this.rateLimiter.checkRateLimit(message.userId);
     if (!rateLimitResult.allowed) {
       console.log(`[QueueConsumer] 流量限制: ${message.userId}`);
@@ -213,19 +231,23 @@ export class QueueConsumer {
     }
     this.rateLimiter.consumeToken(message.userId);
 
-    // 3. 获取或创建会话
-    let session;
+    return null;
+  }
+
+  /**
+   * 获取会话 + 并发槽位
+   */
+  private async acquireSessionAndSlot(
+    message: UserMessage
+  ): Promise<ProcessResult | { session: Session; requestId: string }> {
+    let session: Session;
     try {
       session = await this.sessionManager.getOrCreateSession(message.userId);
     } catch (error: unknown) {
       console.error(`[QueueConsumer] 创建会话失败:`, error);
-      return {
-        success: false,
-        message: '会话创建失败，请稍后重试',
-      };
+      return { success: false, message: '会话创建失败，请稍后重试' };
     }
 
-    // 4. 并发控制
     const requestId = generateMessageId();
     try {
       await this.concurrencyController.acquireSlot(message.userId, requestId, 30000);
@@ -240,91 +262,105 @@ export class QueueConsumer {
       };
     }
 
-    try {
-      // 5. 添加消息到会话历史
-      await this.sessionManager.addMessage(session.conversationId, message);
+    return { session, requestId };
+  }
 
-      // 触发消息接收钩子
-      hookRunner
-        .trigger('message_received' as HookEvent, {
-          userId: message.userId,
-          userName: message.username,
-          conversationId: session.conversationId,
-          content: message.content.substring(0, 200),
-        })
-        .catch(() => {});
+  /**
+   * 构建执行上下文（添加消息 + 钩子 + 历史）
+   */
+  private async buildExecutionContext(
+    session: Session,
+    message: UserMessage
+  ): Promise<MessageContext> {
+    await this.sessionManager.addMessage(session.conversationId, message);
 
-      // 6. 获取对话历史
-      const history = await this.buildHistory(session.conversationId);
-
-      // 7. 构建 AI 上下文
-      const context: MessageContext = {
+    hookRunner
+      .trigger('message_received', {
         userId: message.userId,
         userName: message.username,
         conversationId: session.conversationId,
-        history,
-      };
+        content: message.content.substring(0, 200),
+      })
+      .catch(() => {});
 
-      // 8. 根据配置的 AI Provider 调用相应的 CLI
-      const _providerName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
-      let result;
+    const history = await this.buildHistory(session.conversationId);
 
-      if (config.aiProvider === 'claude') {
-        result = await this.claudeCodeExecutor.execute(message.content, context);
-      } else {
-        result = await this.openCodeExecutor.execute(message.content, context);
-      }
+    return {
+      userId: message.userId,
+      userName: message.username,
+      conversationId: session.conversationId,
+      history,
+    };
+  }
 
-      // 9. 生成用户消息
-      let responseContent: string;
-
-      if (result.success && result.output) {
-        responseContent = result.output;
-      } else if (result.error) {
-        if (
-          result.error.includes('未安装') ||
-          result.error.includes('找不到命令') ||
-          result.error.includes('ENOENT')
-        ) {
-          responseContent = getCLIInstallSuggestion(config.aiProvider);
-        } else {
-          responseContent = formatError(result.error, messageId);
-        }
-      } else {
-        responseContent = '处理完成，但没有返回结果。';
-      }
-
-      // 10. 创建 AI 消息并保存
-      const aiMessage: AIMessage = {
-        id: generateMessageId(),
-        type: 'ai',
-        conversationId: session.conversationId,
-        userId: message.userId,
-        content: responseContent,
-        metadata: {
-          timestamp: Date.now(),
-          source: 'ai',
-        },
-      };
-
-      await this.sessionManager.addMessage(session.conversationId, aiMessage);
-
-      const totalTime = Date.now() - startTime;
-      console.log(`[QueueConsumer] 消息处理完成，耗时：${totalTime}ms`);
-
-      return {
-        success: result.success,
-        message: result.success ? '处理成功' : '处理失败',
-        data: {
-          result: responseContent,
-          conversationId: session.conversationId,
-          executionTime: totalTime,
-          messageId,
-        },
-      };
-    } finally {
-      this.concurrencyController.releaseSlot(message.userId, requestId);
+  /**
+   * 调用 AI Provider 执行
+   */
+  private async executeAI(
+    content: string,
+    context: MessageContext
+  ): Promise<{ success: boolean; output?: string; error?: string }> {
+    if (config.aiProvider === 'claude') {
+      return this.claudeCodeExecutor.execute(content, context);
     }
+    return this.openCodeExecutor.execute(content, context);
+  }
+
+  /**
+   * 处理执行结果并保存 AI 消息
+   */
+  private processResultAndSave(
+    result: { success: boolean; output?: string; error?: string },
+    session: Session,
+    message: UserMessage,
+    messageId: string,
+    startTime: number
+  ): ProcessResult {
+    let responseContent: string;
+
+    if (result.success && result.output) {
+      responseContent = result.output;
+    } else if (result.error) {
+      if (
+        result.error.includes('未安装') ||
+        result.error.includes('找不到命令') ||
+        result.error.includes('ENOENT')
+      ) {
+        responseContent = getCLIInstallSuggestion(config.aiProvider);
+      } else {
+        responseContent = formatError(result.error, messageId);
+      }
+    } else {
+      responseContent = '处理完成，但没有返回结果。';
+    }
+
+    const aiMessage: AIMessage = {
+      id: generateMessageId(),
+      type: 'ai',
+      conversationId: session.conversationId,
+      userId: message.userId,
+      content: responseContent,
+      metadata: {
+        timestamp: Date.now(),
+        source: 'ai',
+      },
+    };
+
+    this.sessionManager.addMessage(session.conversationId, aiMessage);
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[QueueConsumer] 消息处理完成，耗时：${totalTime}ms`);
+
+    return {
+      success: result.success,
+      message: result.success ? '处理成功' : '处理失败',
+      data: {
+        result: responseContent,
+        conversationId: session.conversationId,
+        executionTime: totalTime,
+        messageId,
+      },
+    };
   }
 
   /**
