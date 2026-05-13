@@ -1,11 +1,10 @@
 /**
  * 钩子执行器 - 在生命周期事件触发时执行用户自定义动作
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { exec } from 'child_process';
-import axios from 'axios';
+import axios, { type Method } from 'axios';
 import type { Hook, HookAction, HookContext, HookEvent } from './types';
 
 class HookRunner {
@@ -60,8 +59,6 @@ class HookRunner {
       case 'http':
         await this.executeHttp(action, context);
         break;
-      default:
-        console.warn(`[Hooks] 未知的动作类型: ${(action as any).type}`);
     }
   }
 
@@ -104,7 +101,7 @@ class HookRunner {
     }
 
     await axios({
-      method: action.method as any,
+      method: action.method,
       url: action.url,
       data: resolvedBody || undefined,
       headers: action.headers,

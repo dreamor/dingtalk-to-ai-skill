@@ -1,10 +1,10 @@
 /**
  * Claude Code Agent 适配器 - 将 ClaudeCodeExecutor 适配为 Agent 接口
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+ 
 import type { Agent, AgentResult, AgentConfig } from '../types';
 import type { MessageContext } from '../../types/message';
+import type { ClaudeCodeConfig } from '../../config';
 import { ClaudeCodeExecutor } from '../../claude/executor';
 
 export class ClaudeCodeAgent implements Agent {
@@ -12,8 +12,8 @@ export class ClaudeCodeAgent implements Agent {
   readonly type = 'claude';
   private executor: ClaudeCodeExecutor;
 
-  constructor(options?: Record<string, unknown>) {
-    this.executor = new ClaudeCodeExecutor(options as any);
+  constructor(options?: Partial<ClaudeCodeConfig>) {
+    this.executor = new ClaudeCodeExecutor(options);
   }
 
   async execute(prompt: string, context?: MessageContext): Promise<AgentResult> {

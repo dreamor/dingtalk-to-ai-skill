@@ -2,10 +2,10 @@
  * 定时任务调度器
  * 支持 cron 表达式定时触发任务，结果通过消息队列推送到钉钉群
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+ 
+ 
+ 
+ 
 import cron, { ScheduledTask } from 'node-cron';
 import { randomUUID } from 'crypto';
 import { MessageQueue } from '../message-queue/messageQueue';
@@ -104,7 +104,7 @@ export class Scheduler {
    */
   private initStorage(): void {
     if (!this.storage) return;
-    const db = (this.storage as any).db;
+    const db = this.storage.getDb();
     if (!db) return;
 
     db.exec(`
@@ -127,7 +127,7 @@ export class Scheduler {
    */
   private restoreTasks(): void {
     if (!this.storage) return;
-    const db = (this.storage as any).db;
+    const db = this.storage.getDb();
     if (!db) return;
 
     try {
@@ -184,7 +184,7 @@ export class Scheduler {
 
     // 从存储删除
     if (this.storage) {
-      const db = (this.storage as any).db;
+      const db = this.storage.getDb();
       if (db) {
         try {
           db.prepare('DELETE FROM scheduler_tasks WHERE id = ?').run(id);
@@ -309,7 +309,7 @@ export class Scheduler {
    */
   private persistTask(task: SchedulerTask): void {
     if (!this.storage) return;
-    const db = (this.storage as any).db;
+    const db = this.storage.getDb();
     if (!db) return;
 
     try {

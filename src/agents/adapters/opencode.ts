@@ -1,10 +1,10 @@
 /**
  * OpenCode Agent 适配器 - 将 OpenCodeExecutor 适配为 Agent 接口
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
+ 
 import type { Agent, AgentResult, AgentConfig } from '../types';
 import type { MessageContext } from '../../types/message';
+import type { OpenCodeConfig } from '../../opencode/executor';
 import { OpenCodeExecutor } from '../../opencode/executor';
 
 export class OpenCodeAgent implements Agent {
@@ -12,8 +12,8 @@ export class OpenCodeAgent implements Agent {
   readonly type = 'opencode';
   private executor: OpenCodeExecutor;
 
-  constructor(options?: Record<string, unknown>) {
-    this.executor = new OpenCodeExecutor(options as any);
+  constructor(options?: Partial<OpenCodeConfig>) {
+    this.executor = new OpenCodeExecutor(options);
   }
 
   async execute(prompt: string, context?: MessageContext): Promise<AgentResult> {
