@@ -109,21 +109,22 @@ function checkCLIWithSpawn(command: string): Promise<{ available: boolean; versi
       resolve({ available, version });
     };
 
+    const timeoutId = setTimeout(() => {
+      if (!proc.killed) {
+        proc.kill();
+      }
+      doResolve(false);
+    }, 5000);
+
     proc.on('close', code => {
+      clearTimeout(timeoutId);
       doResolve(code === 0);
     });
 
     proc.on('error', () => {
+      clearTimeout(timeoutId);
       doResolve(false);
     });
-
-    // 超时处理
-    setTimeout(() => {
-      if (!proc.killed) {
-        proc.kill();
-        doResolve(false);
-      }
-    }, 5000);
   });
 }
 

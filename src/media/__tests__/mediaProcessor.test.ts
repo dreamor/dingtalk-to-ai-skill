@@ -52,7 +52,15 @@ describe('MediaProcessor', () => {
   });
 
   test('processes image message', async () => {
-    const result = await processor.processImage('code-123', 'https://example.com/img.jpg');
+    // Use downloadCode path (without URL) to avoid real fetch TLS handle leak
+    mockDownload.mockResolvedValue({
+      buffer: Buffer.from('image-data'),
+      mimeType: 'image/jpeg',
+      fileName: 'image_test.jpg',
+      size: 2048,
+    });
+
+    const result = await processor.processImage('code-123');
 
     expect(result.type).toBe('image');
     expect(result.text).toContain('图片消息');

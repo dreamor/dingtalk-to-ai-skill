@@ -472,23 +472,34 @@ export class OpenCodeExecutor {
    */
   async isAvailable(): Promise<boolean> {
     return new Promise(resolve => {
+      let resolved = false;
       const proc = spawn(this.config.command, ['--version'], {
         stdio: 'ignore',
       });
 
+      const timeoutId = setTimeout(() => {
+        proc.kill();
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
+      }, 5000);
+
       proc.on('close', code => {
-        resolve(code === 0);
+        clearTimeout(timeoutId);
+        if (!resolved) {
+          resolved = true;
+          resolve(code === 0);
+        }
       });
 
       proc.on('error', () => {
-        resolve(false);
+        clearTimeout(timeoutId);
+        if (!resolved) {
+          resolved = true;
+          resolve(false);
+        }
       });
-
-      // 快速超时
-      setTimeout(() => {
-        proc.kill();
-        resolve(false);
-      }, 5000);
     });
   }
 

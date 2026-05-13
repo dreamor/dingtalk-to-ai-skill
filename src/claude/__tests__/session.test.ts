@@ -179,17 +179,20 @@ describe('SessionPool', () => {
   it('should construct with config', () => {
     const pool = new SessionPool({ command: 'claude' }, { maxSessions: 5, idleTimeout: 60000 });
     expect(pool.size).toBe(0);
+    pool.stopCleanup();
   });
 
   it('should close all sessions when empty', async () => {
     const pool = new SessionPool({ command: 'claude' });
     await pool.closeAll();
+    pool.stopCleanup();
     expect(pool.size).toBe(0);
   });
 
   it('should return empty status when no sessions', () => {
     const pool = new SessionPool({ command: 'claude' });
     const status = pool.getStatus();
+    pool.stopCleanup();
     expect(status).toEqual([]);
   });
 

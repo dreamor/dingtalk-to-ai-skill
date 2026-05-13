@@ -18,6 +18,25 @@ jest.mock('child_process', () => {
   };
 });
 
+jest.mock('../../config', () => ({
+  config: {
+    ai: {
+      command: 'opencode',
+      timeout: 30000,
+      maxRetries: 2,
+      retryBaseDelay: 100,
+      retryMaxDelay: 1000,
+      workingDir: '/tmp',
+      model: '',
+      maxInputLength: 10000,
+    },
+  },
+}));
+
+jest.mock('../../utils/retry', () => ({
+  withRetry: jest.fn((fn: () => Promise<unknown>) => fn()),
+}));
+
 import { spawn } from 'child_process';
 
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
@@ -77,9 +96,11 @@ describe('OpenCodeExecutor', () => {
       // Mock spawn to simulate command not found
       const mockProc = {
         stdout: { on: jest.fn() },
-        stderr: { on: jest.fn((event: string, cb: (error: Error) => void) => {
-          if (event === 'data') cb(new Error('Command not found'));
-        }) },
+        stderr: {
+          on: jest.fn((event: string, cb: (error: Error) => void) => {
+            if (event === 'data') cb(new Error('Command not found'));
+          }),
+        },
         stdin: { write: jest.fn(), end: jest.fn() },
         on: jest.fn((event: string, cb: (error: Error) => void) => {
           if (event === 'error') cb(new Error('ENOENT: command not found'));

@@ -10,6 +10,10 @@ describe('RateLimiter', () => {
     limiter = new RateLimiter();
   });
 
+  afterEach(() => {
+    limiter.stopCleanup();
+  });
+
   describe('constructor', () => {
     it('should use default values when no options provided', () => {
       expect(limiter.getMaxTokens()).toBe(10);
@@ -19,6 +23,7 @@ describe('RateLimiter', () => {
     it('should accept custom maxTokens and refillRate', () => {
       const custom = new RateLimiter({ maxTokens: 5, refillRate: 2 });
       expect(custom.getMaxTokens()).toBe(5);
+      custom.stopCleanup();
     });
   });
 
@@ -90,6 +95,7 @@ describe('RateLimiter', () => {
       expect(customLimiter.consumeToken('user1')).toBe(true);
       expect(customLimiter.consumeToken('user1')).toBe(false);
 
+      customLimiter.stopCleanup();
       jest.useRealTimers();
     });
 
@@ -99,6 +105,7 @@ describe('RateLimiter', () => {
       customLimiter.consumeToken('user1');
       jest.advanceTimersByTime(10000);
       expect(customLimiter.getRemainingQuota('user1')).toBe(3);
+      customLimiter.stopCleanup();
       jest.useRealTimers();
     });
   });

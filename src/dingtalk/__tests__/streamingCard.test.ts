@@ -61,7 +61,7 @@ describe('StreamingCardManager', () => {
   });
 
   afterEach(() => {
-    manager.cleanup();
+    manager.destroy();
   });
 
   describe('startStream', () => {
@@ -110,7 +110,7 @@ describe('StreamingCardManager', () => {
       );
 
       expect(handle.isDegraded()).toBe(true);
-      disabledManager.cleanup();
+      disabledManager.destroy();
     });
   });
 
