@@ -59,42 +59,6 @@ export interface Session {
 }
 
 /**
- * 会话存储接口
- */
-export interface SessionStorage {
-  /** 创建会话 */
-  create(session: Session): Promise<void>;
-  /** 获取会话 */
-  get(conversationId: string): Promise<Session | null>;
-  /** 更新会话 */
-  update(session: Session): Promise<void>;
-  /** 删除会话 */
-  delete(conversationId: string): Promise<void>;
-  /** 获取用户的所有会话 */
-  getByUser(userId: string): Promise<Session[]>;
-  /** 获取所有过期会话 */
-  getExpired(before: number): Promise<Session[]>;
-  /** 获取所有会话 */
-  getAll(): Promise<Session[]>;
-}
-
-/**
- * 消息历史管理接口
- */
-export interface HistoryManager {
-  /** 添加消息到历史 */
-  addMessage(conversationId: string, message: ConversationMessage): Promise<void>;
-  /** 获取历史消息 */
-  getHistory(conversationId: string, limit?: number): Promise<ConversationMessage[]>;
-  /** 搜索历史消息 */
-  searchHistory(conversationId: string, query: string): Promise<ConversationMessage[]>;
-  /** 清理历史消息 */
-  clearHistory(conversationId: string): Promise<void>;
-  /** 获取消息数量 */
-  getCount(conversationId: string): Promise<number>;
-}
-
-/**
  * 默认会话配置
  */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {

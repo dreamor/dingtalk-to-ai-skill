@@ -28,6 +28,7 @@ import { Scheduler } from './scheduler';
 import { ProviderRegistry, MessageRouter } from './router';
 import type { RoutingCondition } from './router';
 import { MemoryManager, MemoryStore } from './memory';
+import { closeStorage } from './storage/sqlite';
 
 const logger = createSafeLogger('App');
 
@@ -340,6 +341,15 @@ async function cleanupResources(): Promise<void> {
     } catch (error) {
       logger.error('   ❌ 停止调度器时出错:', error);
     }
+  }
+
+  // 关闭存储（SQLite 连接）
+  try {
+    logger.log('   - 关闭存储连接...');
+    closeStorage();
+    logger.log('   ✅ 存储连接已关闭');
+  } catch (error) {
+    logger.error('   ❌ 关闭存储时出错:', error);
   }
 
   logger.log('✅ 所有资源清理完成');

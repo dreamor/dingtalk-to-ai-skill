@@ -242,12 +242,3 @@ export function isAlertEnabled(): boolean {
 export function getAlertConfig(): AlertConfig {
   return { ...alertConfig };
 }
-
-/**
- * 清空待发送告警队列
- */
-export function clearPendingAlerts(): number {
-  const count = pendingAlerts.length;
-  pendingAlerts.length = 0;
-  return count;
-}

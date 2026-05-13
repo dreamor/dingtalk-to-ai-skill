@@ -31,30 +31,6 @@ export interface StreamMessageData {
   [key: string]: unknown;
 }
 
-/** Stream 回调消息头 */
-export interface StreamMessageHeaders {
-  messageId: string;
-  topic: string;
-  contentType: string;
-  [key: string]: unknown;
-}
-
-/** 钉钉 AI Card 创建响应 */
-export interface AICardCreateResponse {
-  cardInstanceId?: string;
-  [key: string]: unknown;
-}
-
-/** 钉钉 AI Card 投放响应 */
-export interface AICardDeliverResponse {
-  [key: string]: unknown;
-}
-
-/** 钉钉 AI Card 流式更新响应 */
-export interface AICardStreamingResponse {
-  [key: string]: unknown;
-}
-
 /** 钉钉消息拉取 API 响应项 */
 export interface DingtalkMessageItem {
   msgUuid?: string;
@@ -93,36 +69,6 @@ export interface DingtalkGroupMessagesResponse {
   errmsg?: string;
   result?: {
     messages?: DingtalkMessageItem[];
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-/** 钉钉媒体下载响应类型（axios arraybuffer） */
-export interface MediaDownloadResponse {
-  data: ArrayBuffer;
-  headers: Record<string, string | string[] | undefined>;
-}
-
-/** Express 请求体类型 */
-export interface MessageRequestBody {
-  msg?: string;
-  userId?: string;
-  userName?: string;
-  conversationId?: string;
-  sessionWebhook?: string;
-  conversationType?: string;
-  [key: string]: unknown;
-}
-
-/** AI 执行结果 */
-export interface AIExecutionResult {
-  success: boolean;
-  message: string;
-  data?: {
-    result?: string;
-    conversationId?: string;
-    messageId?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;

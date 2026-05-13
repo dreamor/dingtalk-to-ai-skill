@@ -481,8 +481,3 @@ export function validateConfig(): void {
     `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 预热 ${config.persistentSession.warmUpSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
   );
 }
-
-// 导出配置验证函数供启动时调用
-export const validateConfigImmediately = (): void => {
-  validateConfig();
-};

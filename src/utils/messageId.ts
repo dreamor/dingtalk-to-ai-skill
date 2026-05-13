@@ -42,8 +42,7 @@ export class SnowflakeIdGenerator {
     this.lastTimestamp = timestamp;
 
     // 组合 ID
-    const id =
-      ((timestamp - this.epoch) << 22) | (this.machineId << 12) | this.sequence;
+    const id = ((timestamp - this.epoch) << 22) | (this.machineId << 12) | this.sequence;
 
     return id.toString(36).toUpperCase();
   }
@@ -92,9 +91,9 @@ export function generateConversationId(): string {
 }
 
 /**
- * 全局 ID 生成器实例
+ * 全局 ID 生成器实例（内部使用）
  */
-export const messageIdGenerator = new SnowflakeIdGenerator();
+const messageIdGenerator = new SnowflakeIdGenerator();
 
 /**
  * 生成全局唯一的对话 ID
