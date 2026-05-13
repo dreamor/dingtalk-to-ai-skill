@@ -43,7 +43,6 @@
     "typescript-eslint": "^8.0.0"
   },
   "dependencies": {
-    "@agentmemory/mcp": "^0.9.11",
     "axios": "^1.6.2",
     "better-sqlite3": "^12.9.0",
     "dingtalk-stream": "^2.1.4",
