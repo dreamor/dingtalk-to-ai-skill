@@ -1,9 +1,9 @@
 /**
  * 项目记忆管理路由
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { MemoryManager, MemoryCategory, MemorySource } from '../../memory';
+import { isValidId, parsePositiveInt, parseNonNegativeInt } from '../../utils/validators';
 
 export function createMemoryRoutes(getMemoryManager: () => MemoryManager | null): Router {
   const router = Router();
@@ -35,8 +35,8 @@ export function createMemoryRoutes(getMemoryManager: () => MemoryManager | null)
     if (category) filter.category = category as MemoryCategory;
     if (source) filter.source = source as MemorySource;
     if (query) filter.query = query;
-    if (limit) filter.limit = parseInt(limit, 10);
-    if (offset) filter.offset = parseInt(offset, 10);
+    if (limit) filter.limit = parsePositiveInt(limit, 20, 100);
+    if (offset) filter.offset = parseNonNegativeInt(offset, 0);
     const entries = memoryManager.searchMemories(filter);
     res.json({ success: true, data: { entries } });
   });
@@ -50,6 +50,13 @@ export function createMemoryRoutes(getMemoryManager: () => MemoryManager | null)
     const { key, value, category, source, relevanceScore } = req.body;
     if (!key || !value || !category) {
       res.status(400).json({ success: false, message: '缺少必要参数：key, value, category' });
+      return;
+    }
+    if (
+      relevanceScore !== undefined &&
+      (typeof relevanceScore !== 'number' || relevanceScore < 0 || relevanceScore > 1)
+    ) {
+      res.status(400).json({ success: false, message: 'relevanceScore 必须为 0-1 之间的数值' });
       return;
     }
     try {
@@ -73,7 +80,18 @@ export function createMemoryRoutes(getMemoryManager: () => MemoryManager | null)
       res.status(503).json({ success: false, message: '记忆模块未启用' });
       return;
     }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的记忆 ID' });
+      return;
+    }
     const { key, value, category, source, relevanceScore } = req.body;
+    if (
+      relevanceScore !== undefined &&
+      (typeof relevanceScore !== 'number' || relevanceScore < 0 || relevanceScore > 1)
+    ) {
+      res.status(400).json({ success: false, message: 'relevanceScore 必须为 0-1 之间的数值' });
+      return;
+    }
     const updated = memoryManager.updateMemory(req.params.id, {
       key,
       value,
@@ -92,6 +110,10 @@ export function createMemoryRoutes(getMemoryManager: () => MemoryManager | null)
     const memoryManager = getMemoryManager();
     if (!memoryManager) {
       res.status(503).json({ success: false, message: '记忆模块未启用' });
+      return;
+    }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的记忆 ID' });
       return;
     }
     const deleted = memoryManager.deleteMemory(req.params.id);

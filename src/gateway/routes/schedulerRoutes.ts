@@ -1,9 +1,9 @@
 /**
  * 定时任务路由
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { Scheduler } from '../../scheduler';
+import { isValidCron, isValidId } from '../../utils/validators';
 
 export function createSchedulerRouter(getScheduler: () => Scheduler | null): Router {
   const router = Router();
@@ -31,6 +31,13 @@ export function createSchedulerRouter(getScheduler: () => Scheduler | null): Rou
       });
       return;
     }
+    if (!isValidCron(cron)) {
+      res.json({
+        success: false,
+        message: 'cron 表达式格式无效，需要 5 字段格式（分 时 日 月 周）',
+      });
+      return;
+    }
     const task = scheduler.addTask({ name, cron, prompt, conversationId, enabled });
     res.json({ success: true, task });
   });
@@ -41,6 +48,10 @@ export function createSchedulerRouter(getScheduler: () => Scheduler | null): Rou
       res.json({ success: false, message: '调度器未启用' });
       return;
     }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的任务 ID' });
+      return;
+    }
     const removed = scheduler.removeTask(req.params.id);
     res.json({ success: removed, message: removed ? '任务已删除' : '任务不存在' });
   });
@@ -49,6 +60,10 @@ export function createSchedulerRouter(getScheduler: () => Scheduler | null): Rou
     const scheduler = getScheduler();
     if (!scheduler) {
       res.json({ success: false, message: '调度器未启用' });
+      return;
+    }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的任务 ID' });
       return;
     }
     const task = scheduler.toggleTask(req.params.id);

@@ -1,9 +1,9 @@
 /**
  * 多 Agent 路由管理路由
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Router, Request, Response } from 'express';
 import type { ProviderRegistry, MessageRouter } from '../../router';
+import { isPositiveInteger, isNonNegativeInteger, isValidId } from '../../utils/validators';
 
 export function createRouterRoutes(
   getProviderRegistry: () => ProviderRegistry | null,
@@ -39,12 +39,18 @@ export function createRouterRoutes(
         res.status(400).json({ success: false, message: '缺少必要参数：name, type, command' });
         return;
       }
+      if (typeof command === 'string' && command.includes('..')) {
+        res.status(400).json({ success: false, message: 'command 不允许包含路径遍历字符' });
+        return;
+      }
+      const timeoutValue =
+        timeout !== undefined ? (isPositiveInteger(timeout) ? timeout : undefined) : undefined;
       registry.register({
         name,
         type,
         command,
         args: args || [],
-        timeout: timeout || 120000,
+        timeout: timeoutValue ?? 120000,
         enabled: enabled !== false,
       });
       res.json({ success: true, message: `Provider "${name}" 已注册` });
@@ -88,10 +94,16 @@ export function createRouterRoutes(
           .json({ success: false, message: '缺少必要参数：name, condition, provider' });
         return;
       }
+      const priorityValue =
+        priority !== undefined
+          ? isNonNegativeInteger(priority)
+            ? priority
+            : undefined
+          : undefined;
       const rule = messageRouter.addRule({
         name,
         enabled: enabled !== false,
-        priority: priority || 100,
+        priority: priorityValue ?? 100,
         condition,
         provider,
       });
@@ -108,6 +120,10 @@ export function createRouterRoutes(
       res.status(503).json({ success: false, message: 'Router 未启用' });
       return;
     }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的规则 ID' });
+      return;
+    }
     const deleted = messageRouter.removeRule(req.params.id);
     res.json({ success: deleted, message: deleted ? '规则已删除' : '规则不存在' });
   });
@@ -116,6 +132,10 @@ export function createRouterRoutes(
     const messageRouter = getMessageRouter();
     if (!messageRouter) {
       res.status(503).json({ success: false, message: 'Router 未启用' });
+      return;
+    }
+    if (!isValidId(req.params.id)) {
+      res.status(400).json({ success: false, message: '无效的规则 ID' });
       return;
     }
     const rule = messageRouter.toggleRule(req.params.id);
