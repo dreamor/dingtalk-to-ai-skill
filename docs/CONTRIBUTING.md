@@ -68,7 +68,7 @@ npm run test:watch
 - 使用 Jest + ts-jest
 - 遵循 Arrange-Act-Assert 模式
 - Mock 外部依赖（钉钉 API、CLI 执行器等）
-- 目标覆盖率：80%
+- 覆盖率原则：关键业务路径（router/queue/memory/validators 等）保持 80%+；CLI 子进程与 WebSocket 等外部边界靠集成测试 + 手工烟雾测试兜底，不强求整体 80%
 
 ### 测试结构示例
 
