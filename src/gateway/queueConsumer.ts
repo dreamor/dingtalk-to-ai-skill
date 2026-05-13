@@ -106,14 +106,14 @@ export class QueueConsumer {
    */
   start(): void {
     if (this.isRunning) {
-      console.log('[QueueConsumer] 已经在运行中');
+      logger.log('已经在运行中');
       return;
     }
 
     this.isRunning = true;
-    console.log('[QueueConsumer] 消息消费者已启动');
-    console.log(`  - 轮询间隔: ${this.config.pollInterval}ms`);
-    console.log(`  - 批处理大小: ${this.config.batchSize}`);
+    logger.log('消息消费者已启动');
+    logger.log(`  - 轮询间隔: ${this.config.pollInterval}ms`);
+    logger.log(`  - 批处理大小: ${this.config.batchSize}`);
 
     this.timer = setTimeout(() => this.consumeLoop(), 0);
     this.timer.unref();
@@ -128,7 +128,7 @@ export class QueueConsumer {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    console.log('[QueueConsumer] 消息消费者已停止');
+    logger.log('消息消费者已停止');
   }
 
   /**
@@ -139,7 +139,7 @@ export class QueueConsumer {
 
     this.processBatch()
       .catch(error => {
-        console.error('[QueueConsumer] 处理消息时发生错误:', error);
+        logger.error('处理消息时发生错误:', error);
       })
       .finally(() => {
         if (this.isRunning) {
@@ -156,7 +156,7 @@ export class QueueConsumer {
     const messages = this.queue.batchDequeue(this.config.batchSize);
     if (messages.length === 0) return;
 
-    console.log(`[QueueConsumer] 从队列获取 ${messages.length} 条消息`);
+    logger.log(`从队列获取 ${messages.length} 条消息`);
 
     const processPromises = messages.map(msg => this.processQueuedMessage(msg));
     await Promise.all(processPromises);
@@ -169,7 +169,7 @@ export class QueueConsumer {
     const { message, retryCount } = queuedMsg;
 
     try {
-      console.log(`[QueueConsumer] 处理消息：${message.content.substring(0, 50)}...`);
+      logger.log(`处理消息：${message.content.substring(0, 50)}...`);
 
       if (this.messageHandler) {
         await this.messageHandler(message.content, message.userId, message.username || '用户');
@@ -178,13 +178,13 @@ export class QueueConsumer {
       }
 
       this.queue.complete(message.id);
-      console.log(`[QueueConsumer] 消息处理完成: ${message.id}`);
+      logger.log(`消息处理完成: ${message.id}`);
     } catch (error: unknown) {
-      console.error(`[QueueConsumer] 消息处理失败: ${message.id}`, error);
+      logger.error(`消息处理失败: ${message.id}`, error);
       this.queue.fail(message.id);
 
       if (retryCount >= 3) {
-        console.error(`[QueueConsumer] 消息重试次数过多，将丢弃: ${message.id}`);
+        logger.error(`消息重试次数过多，将丢弃: ${message.id}`);
       }
     }
   }
@@ -219,14 +219,14 @@ export class QueueConsumer {
    */
   private validateAndPrepare(message: UserMessage, _messageId: string): ProcessResult | null {
     if (this.deduplicator.isDuplicate(message.content, message.userId)) {
-      console.log(`[QueueConsumer] 检测到重复消息: ${message.id}`);
+      logger.log(`检测到重复消息: ${message.id}`);
       return { success: false, message: '消息已处理，请勿重复发送' };
     }
     this.deduplicator.record(message.content, message.userId);
 
     const rateLimitResult = this.rateLimiter.checkRateLimit(message.userId);
     if (!rateLimitResult.allowed) {
-      console.log(`[QueueConsumer] 流量限制: ${message.userId}`);
+      logger.log(`流量限制: ${message.userId}`);
       return {
         success: false,
         message: `请求过于频繁，请稍后再试（剩余配额：${rateLimitResult.remaining}）`,
@@ -247,7 +247,7 @@ export class QueueConsumer {
     try {
       session = await this.sessionManager.getOrCreateSession(message.userId);
     } catch (error: unknown) {
-      console.error(`[QueueConsumer] 创建会话失败:`, error);
+      logger.error(`创建会话失败:`, error);
       return { success: false, message: '会话创建失败，请稍后重试' };
     }
 
@@ -255,7 +255,7 @@ export class QueueConsumer {
     try {
       await this.concurrencyController.acquireSlot(message.userId, requestId, 30000);
     } catch (error: unknown) {
-      console.error(`[QueueConsumer] 获取并发槽位失败:`, error);
+      logger.error(`获取并发槽位失败:`, error);
       return {
         success: false,
         message:
@@ -357,7 +357,7 @@ export class QueueConsumer {
     this.sessionManager.addMessage(session.conversationId, aiMessage);
 
     const totalTime = Date.now() - startTime;
-    console.log(`[QueueConsumer] 消息处理完成，耗时：${totalTime}ms`);
+    logger.log(`消息处理完成，耗时：${totalTime}ms`);
 
     return {
       success: result.success,

@@ -2,6 +2,9 @@
  * 并发控制器
  * 控制用户和全局的并发请求数
  */
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Concurrency');
 
 interface SlotInfo {
   userId: string;
@@ -99,7 +102,7 @@ export class ConcurrencyController {
       acquiredAt: Date.now(),
     });
 
-    console.log(
+    logger.log(
       `🔒 获取槽位：${requestId} (用户：${userId}, 用户并发：${userCurrent + 1}/${this.maxConcurrentPerUser})`
     );
   }
@@ -115,7 +118,7 @@ export class ConcurrencyController {
     // 移除活跃槽位
     this.activeSlots.delete(requestId);
 
-    console.log(`🔓 释放槽位：${requestId} (用户：${userId})`);
+    logger.log(`🔓 释放槽位：${requestId} (用户：${userId})`);
 
     // 尝试满足等待队列中的请求
     this.processWaitingQueue();

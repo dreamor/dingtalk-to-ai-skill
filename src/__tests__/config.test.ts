@@ -60,7 +60,7 @@ describe('validateConfig', () => {
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const { validateConfig } = require('../config');
     expect(() => validateConfig()).not.toThrow();
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('配置验证通过'));
+    expect(consoleLogSpy).toHaveBeenCalledWith('[Config]', expect.stringContaining('配置验证通过'));
     consoleLogSpy.mockRestore();
   });
 

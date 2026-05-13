@@ -1,6 +1,9 @@
 /**
  * AI Provider 注册表 - 管理多个 AI 提供者
  */
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Provider');
 
 export interface AIProvider {
   name: string;
@@ -17,13 +20,13 @@ export class ProviderRegistry {
 
   register(provider: AIProvider): void {
     this.providers.set(provider.name, provider);
-    console.log(`[Router] 注册 AI Provider: ${provider.name} (${provider.type})`);
+    logger.log(`注册 AI Provider: ${provider.name} (${provider.type})`);
   }
 
   unregister(name: string): boolean {
     const deleted = this.providers.delete(name);
     if (deleted) {
-      console.log(`[Router] 注销 AI Provider: ${name}`);
+      logger.log(`注销 AI Provider: ${name}`);
     }
     return deleted;
   }
@@ -51,7 +54,7 @@ export class ProviderRegistry {
       throw new Error(`Provider "${name}" not found`);
     }
     this.defaultName = name;
-    console.log(`[Router] 默认 Provider 设置为: ${name}`);
+    logger.log(`默认 Provider 设置为: ${name}`);
   }
 
   getDefaultName(): string {

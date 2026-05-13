@@ -269,7 +269,7 @@ export class ClaudeSession {
     // -p 模式下进程在处理完请求后退出，需要通过 --resume 重启
     if (this.state === 'closed' || this.state === 'error') {
       if (this.sessionId) {
-        console.log(`[ClaudeSession] 进程已退出，使用 --resume ${this.sessionId} 恢复会话`);
+        logger.log(`进程已退出，使用 --resume ${this.sessionId} 恢复会话`);
         this.config.resumeSessionId = this.sessionId;
       }
       await this.start();
@@ -487,7 +487,7 @@ export class ClaudeSession {
     if (!this.process) return;
 
     this.process.on('error', err => {
-      console.error('[ClaudeSession] 进程错误:', err);
+      logger.error('进程错误:', err);
       this.callbacks.onError?.(err);
       this.setState('error');
     });
@@ -496,13 +496,13 @@ export class ClaudeSession {
       this.process.stderr.on('data', (data: Buffer) => {
         const text = data.toString().trim();
         if (text) {
-          console.error('[ClaudeSession] stderr:', text);
+          logger.error('stderr:', text);
         }
       });
     }
 
     this.process.on('exit', (code, signal) => {
-      console.log(`[ClaudeSession] 进程退出: code=${code}, signal=${signal}`);
+      logger.log(`进程退出: code=${code}, signal=${signal}`);
 
       if (this.state === 'closing' || this.state === 'closed') {
         this.cleanup();
@@ -513,7 +513,7 @@ export class ClaudeSession {
       // 静默设置 closed 状态，不触发 onStateChange（避免 SessionPool 删除会话条目）
       // send() 中的 getOrCreate 重试逻辑会在下次调用时通过 --resume 恢复
       if (code === 0 && this.resultReceived) {
-        console.log('[ClaudeSession] -p 模式正常退出，标记为 closed（下次 send 将 --resume 恢复）');
+        logger.log('-p 模式正常退出，标记为 closed（下次 send 将 --resume 恢复）');
         this.state = 'closed'; // 直接赋值，不触发 onStateChange
         this.cleanup();
         return;
@@ -545,11 +545,11 @@ export class ClaudeSession {
       logger.warn('无法解析 JSON:', line.substring(0, 200));
       return;
     }
-    console.log(`[Session] handleLine: type=${event.type}`);
+    logger.log(`handleLine: type=${event.type}`);
 
     // 收到任何有效事件时，若仍在等待初始化，立即 resolve（新版 CLI 可能不发 system.init）
     if (this.initResolve && event.type !== 'system') {
-      console.log(`[ClaudeSession] 收到首条 ${event.type} 事件，初始化完成`);
+      logger.log(`收到首条 ${event.type} 事件，初始化完成`);
       this.initResolve();
       this.initResolve = null;
     }
@@ -571,7 +571,7 @@ export class ClaudeSession {
         // --include-partial-messages 产生的心跳/进度事件，无需处理
         break;
       default:
-        console.log('[ClaudeSession] 未知事件类型:', (event as Record<string, unknown>).type);
+        logger.log('未知事件类型:', (event as Record<string, unknown>).type);
     }
   }
 
@@ -580,8 +580,8 @@ export class ClaudeSession {
     if (event.subtype === 'init') {
       // 旧版 CLI 协议
       this.sessionId = event.session_id;
-      console.log(
-        `[ClaudeSession] 会话初始化: session_id=${event.session_id}, model=${event.model}`
+      logger.log(
+        `会话初始化: session_id=${event.session_id}, model=${event.model}`
       );
 
       if (this.initResolve) {
@@ -600,8 +600,8 @@ export class ClaudeSession {
       this.hookCompleted++;
       // 所有 hooks 响应完成，进程已就绪
       if (this.hookCompleted >= this.hookStarted && this.hookStarted > 0) {
-        console.log(
-          `[ClaudeSession] Hooks 完成 (${this.hookStarted}/${this.hookCompleted})，会话就绪`
+        logger.log(
+          `Hooks 完成 (${this.hookStarted}/${this.hookCompleted})，会话就绪`
         );
         // session_id 可从任意事件获取
         if (!this.sessionId && event.session_id) {
@@ -641,32 +641,30 @@ export class ClaudeSession {
           const delta = text.substring(this.previousAssistantText.length);
           this.accumulatedText += delta;
           this.previousAssistantText = text;
-          console.log(
-            `[Session] handleAssistantEvent: partial text delta=${delta.length}, total=${text.length}, preview="${delta.substring(0, 60).replace(/"/g, '\\"')}"`
+          logger.log(
+            `handleAssistantEvent: partial text delta=${delta.length}, total=${text.length}, preview="${delta.substring(0, 60).replace(/"/g, '\\"')}"`
           );
           this.callbacks.onText?.(delta);
         } else if (text !== this.previousAssistantText) {
           // 增量模式或首块：text 是新的文本块
           this.accumulatedText += text;
           this.previousAssistantText += text;
-          console.log(
-            `[Session] handleAssistantEvent: text chunk length=${text.length}, preview="${text.substring(0, 60).replace(/"/g, '\\"')}"`
+          logger.log(
+            `handleAssistantEvent: text chunk length=${text.length}, preview="${text.substring(0, 60).replace(/"/g, '\\"')}"`
           );
           this.callbacks.onText?.(text);
         }
         // text === previousAssistantText: 重复事件，跳过
       } else if (block.type === 'thinking') {
         const thinkingText = block.text ?? '';
-        console.log(
-          `[Session] handleAssistantEvent: thinking block, length=${thinkingText.length}`
-        );
+        logger.log(`handleAssistantEvent: thinking block, length=${thinkingText.length}`);
         this.callbacks.onThinking?.(thinkingText);
       } else if (block.type === 'tool_use') {
-        console.log(`[Session] handleAssistantEvent: tool_use block, name=${block.name}`);
+        logger.log(`handleAssistantEvent: tool_use block, name=${block.name}`);
         this.callbacks.onToolUse?.(block.name, block.input);
       } else if (block.type === 'tool_result') {
-        console.log(
-          `[Session] handleAssistantEvent: tool_result block, tool_use_id=${block.tool_use_id}`
+        logger.log(
+          `handleAssistantEvent: tool_result block, tool_use_id=${block.tool_use_id}`
         );
         this.callbacks.onToolResult?.(block.tool_use_id, block.content);
       }
@@ -675,8 +673,8 @@ export class ClaudeSession {
 
   /** 处理 result 事件（请求完成） */
   private handleResultEvent(event: ResultEvent): void {
-    console.log(
-      `[Session] handleResultEvent: result.length=${(event.result || this.accumulatedText || '').length}, executionMs=${Date.now() - this.startTime}`
+    logger.log(
+      `handleResultEvent: result.length=${(event.result || this.accumulatedText || '').length}, executionMs=${Date.now() - this.startTime}`
     );
     const executionTime = Date.now() - this.startTime;
 
@@ -705,7 +703,7 @@ export class ClaudeSession {
 
   /** 处理权限请求（dangerously-skip-permissions 模式下不应出现，但做兜底处理） */
   private handleControlRequest(event: ControlRequestEvent): void {
-    console.log(`[ClaudeSession] 权限请求: tool=${event.tool}, id=${event.id}`);
+    logger.log(`权限请求: tool=${event.tool}, id=${event.id}`);
 
     // dangerously-skip-permissions 模式下自动批准
     const response = {
@@ -732,7 +730,7 @@ export class ClaudeSession {
 
       setTimeout(() => {
         if (this.initResolve) {
-          console.log(`[ClaudeSession] 初始化超时 ${timeoutMs}ms，直接进入 ready 状态`);
+          logger.log(`初始化超时 ${timeoutMs}ms，直接进入 ready 状态`);
           this.initResolve();
           this.initResolve = null;
         }
@@ -745,7 +743,7 @@ export class ClaudeSession {
     const oldState = this.state;
     this.state = newState;
     if (oldState !== newState) {
-      console.log(`[ClaudeSession] 状态: ${oldState} → ${newState}`);
+      logger.log(`状态: ${oldState} → ${newState}`);
       this.callbacks.onStateChange?.(newState);
     }
   }
@@ -756,9 +754,9 @@ export class ClaudeSession {
 
     if (this.state === 'ready') {
       this.idleTimer = setTimeout(() => {
-        console.log(`[ClaudeSession] 空闲超时 (${this.config.idleTimeout / 1000}s)，关闭会话`);
+        logger.log(`空闲超时 (${this.config.idleTimeout / 1000}s)，关闭会话`);
         this.close().catch(err => {
-          console.error('[ClaudeSession] 空闲关闭失败:', err);
+          logger.error('空闲关闭失败:', err);
         });
       }, this.config.idleTimeout);
     }

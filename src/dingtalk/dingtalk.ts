@@ -2,12 +2,17 @@
  * 钉钉 Channel 实现
  * 基于 Stream 模式实现消息收发，无需 Webhook 回调
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
+import { createSafeLogger } from '../utils/logger';
+import type {
+  DingtalkAccessTokenResponse,
+  DingtalkFetchMessagesResponse,
+  DingtalkGroupMessagesResponse,
+  DingtalkMessageItem,
+} from '../types/dingtalk-api';
+
+const logger = createSafeLogger('DingtalkService');
 
 // 钉钉消息类型定义
 export interface DingtalkMessage {
@@ -204,15 +209,19 @@ export class DingtalkService {
       // 使用钉钉 Long Polling API
       // 这是钉钉官方提供的免回调 URL 方案，适合轮询模式
       // 文档：https://open.dingtalk.com/document/orgapp-server/obtain-llm-pushes
-      const response = await this.httpClient.post('/v1.0/contact/messages/get', requestBody, {
-        params: {
-          access_token: accessToken,
-        },
-        timeout,
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
+      const response = await this.httpClient.post<DingtalkFetchMessagesResponse>(
+        '/v1.0/contact/messages/get',
+        requestBody,
+        {
+          params: {
+            access_token: accessToken,
+          },
+          timeout,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
 
       if (response.data.code !== 'ok' && !response.data.success) {
         throw new Error(
@@ -222,22 +231,22 @@ export class DingtalkService {
 
       const data = response.data || {};
       const messages: DingtalkMessage[] = (data.result?.items || []).map(
-        (msg: Record<string, unknown>) => ({
-          msgUid: (msg.msgUuid as string) || (typeof msg.bizId === 'string' ? msg.bizId : ''),
-          conversationId: msg.conversationId as string,
-          senderId: msg.senderId as string,
-          senderNick: (msg.senderNick as string) || '未知',
+        (msg: DingtalkMessageItem) => ({
+          msgUid: msg.msgUuid ?? (typeof msg.bizId === 'string' ? msg.bizId : ''),
+          conversationId: msg.conversationId ?? '',
+          senderId: msg.senderId ?? '',
+          senderNick: msg.senderNick ?? '未知',
           text: msg.text
             ? { content: typeof msg.text === 'string' ? msg.text : JSON.stringify(msg.text) }
             : undefined,
-          msgType: (msg.msgType as string) || 'text',
+          msgType: msg.msgType ?? 'text',
           createTime: Number(msg.createTime || msg.sendTime || Date.now()),
         })
       );
 
       return {
         hasMore: data.hasMore === true,
-        nextCursor: data.nextCursor as string | undefined,
+        nextCursor: data.nextCursor,
         messages,
       };
     } catch (error) {
@@ -258,36 +267,39 @@ export class DingtalkService {
 
       // 群机器人不支持历史消息拉取，这里返回空数组
       // 在实际使用时，需要结合钉钉企业自建应用或其他方式
-      console.log('[DingtalkService] 群机器人不支持历史消息拉取，返回空数组');
+      logger.log('群机器人不支持历史消息拉取，返回空数组');
 
       // 如果有时间戳参数，尝试获取该时间点之后的消息
       if (sinceTimestamp) {
         // 这里需要企业自建应用权限
         // 使用企业自建应用的会话消息拉取接口
         const timestamp = sinceTimestamp;
-        const response = await this.httpClient.get('/topapi/im/v1/messages', {
-          params: {
-            access_token: accessToken,
-            start_time: timestamp,
-            limit,
-          },
-          timeout: 5000,
-        });
+        const response = await this.httpClient.get<DingtalkGroupMessagesResponse>(
+          '/topapi/im/v1/messages',
+          {
+            params: {
+              access_token: accessToken,
+              start_time: timestamp,
+              limit,
+            },
+            timeout: 5000,
+          }
+        );
 
         if (response.data.errcode === 0) {
           const data = response.data.result || {};
-          return (data.messages || []).map((msg: Record<string, unknown>) => ({
-            msgUid: msg.msgUid as string,
-            conversationId: msg.conversationId as string,
-            senderId: msg.senderId as string,
-            senderNick: msg.senderNick as string,
+          return (data.messages || []).map(msg => ({
+            msgUid: msg.msgUuid ?? '',
+            conversationId: msg.conversationId ?? '',
+            senderId: msg.senderId ?? '',
+            senderNick: msg.senderNick ?? '',
             text: msg.content
               ? {
                   content:
                     typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
                 }
               : undefined,
-            msgType: msg.msgType as string,
+            msgType: msg.msgType ?? 'text',
             createTime: Number(msg.createTime) || Date.now(),
           }));
         }
@@ -296,7 +308,7 @@ export class DingtalkService {
       return [];
     } catch (error) {
       const message = error instanceof Error ? error.message : '未知错误';
-      console.error(`[DingtalkService] 拉取群消息失败: ${message}`);
+      logger.error(`拉取群消息失败: ${message}`);
       throw error;
     }
   }

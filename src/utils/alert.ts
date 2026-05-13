@@ -4,6 +4,9 @@
  * 无需额外 webhook，复用现有 Stream 连接
  */
 import { config } from '../config';
+import { createSafeLogger } from './logger';
+
+const logger = createSafeLogger('Alert');
 
 // 告警配置
 interface AlertConfig {
@@ -25,8 +28,8 @@ const alertConfig: AlertConfig = {
 
 // 打印告警配置（调试用）
 if (alertConfig.enabled) {
-  console.log(
-    `[Alert] 告警配置: adminUserId=${alertConfig.adminUserId}, mentionAll=${alertConfig.mentionAll}`
+  logger.log(
+    `告警配置: adminUserId=${alertConfig.adminUserId}, mentionAll=${alertConfig.mentionAll}`
   );
 }
 
@@ -50,7 +53,7 @@ function enqueuePendingAlert(alert: {
 }): void {
   if (pendingAlerts.length >= MAX_PENDING_ALERTS) {
     pendingAlerts.shift(); // 丢弃最旧的告警
-    console.warn(`[Alert] 告警队列已满 (${MAX_PENDING_ALERTS})，丢弃最旧的告警`);
+    logger.warn(`告警队列已满 (${MAX_PENDING_ALERTS})，丢弃最旧的告警`);
   }
   pendingAlerts.push(alert);
 }
@@ -70,19 +73,16 @@ let streamService: {
  */
 export function setStreamService(service: typeof streamService): void {
   streamService = service;
-  console.log('[Alert] Stream 服务已绑定，告警功能已启用');
+  logger.log('Stream 服务已绑定，告警功能已启用');
 
   // 发送缓存的告警
   if (alertConfig.adminSessionWebhook && pendingAlerts.length > 0) {
-    console.log(`[Alert] 发送 ${pendingAlerts.length} 条缓存的告警...`);
+    logger.log(`发送 ${pendingAlerts.length} 条缓存的告警...`);
     while (pendingAlerts.length > 0) {
       const alert = pendingAlerts.shift();
       if (alert) {
         sendAlert(alert.title, alert.content, alert.level).catch(err =>
-          console.warn(
-            '[Alert] 缓存告警发送失败:',
-            err instanceof Error ? err.message : String(err)
-          )
+          logger.warn('缓存告警发送失败:', err instanceof Error ? err.message : String(err))
         );
       }
     }
@@ -98,19 +98,16 @@ export function updateAdminSessionWebhook(conversationId: string, sessionWebhook
     conversationId.includes(alertConfig.adminUserId)
   ) {
     alertConfig.adminSessionWebhook = sessionWebhook;
-    console.log('[Alert] 管理员 sessionWebhook 已更新');
+    logger.log('管理员 sessionWebhook 已更新');
 
     // 发送缓存的告警
     if (pendingAlerts.length > 0) {
-      console.log(`[Alert] 发送 ${pendingAlerts.length} 条缓存的告警...`);
+      logger.log(`发送 ${pendingAlerts.length} 条缓存的告警...`);
       while (pendingAlerts.length > 0) {
         const alert = pendingAlerts.shift();
         if (alert) {
           sendAlert(alert.title, alert.content, alert.level).catch(err =>
-            console.warn(
-              '[Alert] 缓存告警发送失败:',
-              err instanceof Error ? err.message : String(err)
-            )
+            logger.warn('缓存告警发送失败:', err instanceof Error ? err.message : String(err))
           );
         }
       }
@@ -154,22 +151,22 @@ export async function sendAlert(
 
   // 如果告警未启用，只记录日志
   if (!alertConfig.enabled) {
-    console.log(`[Alert] 告警未启用，仅记录: ${title}`);
-    console.log(`[Alert] 内容: ${content}`);
+    logger.log(`告警未启用，仅记录: ${title}`);
+    logger.log(`内容: ${content}`);
     return false;
   }
 
   // 如果 Stream 服务未绑定，缓存告警
   if (!streamService) {
-    console.log(`[Alert] Stream 服务未绑定，缓存告警: ${title}`);
+    logger.log(`Stream 服务未绑定，缓存告警: ${title}`);
     enqueuePendingAlert({ title, content, level });
     return false;
   }
 
   // 如果没有 sessionWebhook，缓存告警并提示
   if (!alertConfig.adminSessionWebhook) {
-    console.log(`[Alert] 管理员尚未发送消息，缓存告警: ${title}`);
-    console.log(`[Alert] 提示: 管理员发送一条消息后将收到缓存的告警`);
+    logger.log(`管理员尚未发送消息，缓存告警: ${title}`);
+    logger.log(`提示: 管理员发送一条消息后将收到缓存的告警`);
     enqueuePendingAlert({ title, content, level });
     return false;
   }
@@ -180,11 +177,11 @@ export async function sendAlert(
       `${levelEmoji[level]} ${title}`,
       message
     );
-    console.log(`[Alert] ✅ 告警发送成功: ${title}`);
+    logger.log(`✅ 告警发送成功: ${title}`);
     return true;
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`[Alert] ❌ 发送告警时发生错误: ${msg}`);
+    logger.error(`❌ 发送告警时发生错误: ${msg}`);
     // 发送失败，缓存告警
     enqueuePendingAlert({ title, content, level });
     return false;

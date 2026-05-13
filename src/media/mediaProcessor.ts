@@ -2,6 +2,9 @@
  * 媒体处理器 - 处理下载的媒体文件，生成文本描述
  */
 import { MediaDownloader } from './mediaDownloader';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('MediaProcessor');
 
 export interface ProcessedMedia {
   type: 'voice' | 'image' | 'video' | 'file';
@@ -38,9 +41,10 @@ export class MediaProcessor {
       const media = await this.downloader.downloadMedia(mediaId, format || 'amr');
       const durationSec = duration ? Math.round(parseInt(duration, 10) / 1000) : 0;
 
-      const text = durationSec > 0
-        ? `[语音消息] 用户发送了 ${durationSec} 秒的语音消息（格式: ${media.mimeType}，大小: ${this.formatSize(media.size)}）`
-        : `[语音消息] 用户发送了语音消息（格式: ${media.mimeType}，大小: ${this.formatSize(media.size)}）`;
+      const text =
+        durationSec > 0
+          ? `[语音消息] 用户发送了 ${durationSec} 秒的语音消息（格式: ${media.mimeType}，大小: ${this.formatSize(media.size)}）`
+          : `[语音消息] 用户发送了语音消息（格式: ${media.mimeType}，大小: ${this.formatSize(media.size)}）`;
 
       return {
         type: 'voice',
@@ -54,7 +58,7 @@ export class MediaProcessor {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Media] Failed to process voice:', msg);
+      logger.error('Failed to process voice:', msg);
       return {
         type: 'voice',
         text: `[语音消息] 用户发送了语音消息（处理失败: ${msg}）`,
@@ -75,7 +79,7 @@ export class MediaProcessor {
     try {
       let media;
       if (downloadUrl) {
-        console.log(`[Media] Downloading image from URL: ${downloadUrl.substring(0, 50)}...`);
+        logger.log(`Downloading image from URL: ${downloadUrl.substring(0, 50)}...`);
         const response = await fetch(downloadUrl);
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
@@ -100,7 +104,7 @@ export class MediaProcessor {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Media] Failed to process image:', msg);
+      logger.error('Failed to process image:', msg);
       return {
         type: 'image',
         text: `[图片消息] 用户发送了一张图片（处理失败: ${msg}）`,
@@ -132,7 +136,7 @@ export class MediaProcessor {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Media] Failed to process video:', msg);
+      logger.error('Failed to process video:', msg);
       return {
         type: 'video',
         text: `[视频消息] 用户发送了视频消息（处理失败: ${msg}）`,
@@ -165,7 +169,7 @@ export class MediaProcessor {
       };
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Media] Failed to process file:', msg);
+      logger.error('Failed to process file:', msg);
       return {
         type: 'file',
         text: `[文件消息] 用户发送了文件: ${fileName}（处理失败: ${msg}）`,

@@ -40,7 +40,7 @@ describe('sendAlert', () => {
 
     const result = await send('Test Title', 'Test Content', 'error');
     expect(result).toBe(false);
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('告警未启用'));
+    expect(consoleLogSpy).toHaveBeenCalledWith('[Alert]', expect.stringContaining('告警未启用'));
 
     consoleLogSpy.mockRestore();
   });
@@ -55,7 +55,10 @@ describe('sendAlert', () => {
 
     const result = await send('Test', 'Content', 'warning');
     expect(result).toBe(false);
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Stream 服务未绑定'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[Alert]',
+      expect.stringContaining('Stream 服务未绑定')
+    );
 
     consoleLogSpy.mockRestore();
     delete process.env.ALERT_ADMIN_USER_ID;
@@ -71,7 +74,10 @@ describe('sendAlert', () => {
 
     const result = await send('Test', 'Content', 'info');
     expect(result).toBe(false);
-    expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('管理员尚未发送消息'));
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[Alert]',
+      expect.stringContaining('管理员尚未发送消息')
+    );
 
     consoleLogSpy.mockRestore();
     delete process.env.ALERT_ADMIN_USER_ID;

@@ -2,16 +2,16 @@
  * 定时任务调度器
  * 支持 cron 表达式定时触发任务，结果通过消息队列推送到钉钉群
  */
- 
- 
- 
- 
+
 import cron, { ScheduledTask } from 'node-cron';
 import { randomUUID } from 'crypto';
 import { MessageQueue } from '../message-queue/messageQueue';
 import { UserMessage } from '../types/message';
 import { generateMessageId } from '../utils/messageId';
 import { SQLiteStorage, getStorage } from '../storage/sqlite';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Scheduler');
 
 export interface SchedulerTask {
   id: string;
@@ -66,7 +66,7 @@ export class Scheduler {
   // eslint-disable-next-line @typescript-eslint/require-await
   async init(): Promise<void> {
     if (!this.config.enabled) {
-      console.log('[Scheduler] 调度器未启用');
+      logger.log('调度器未启用');
       return;
     }
 
@@ -76,7 +76,7 @@ export class Scheduler {
       this.initStorage();
       this.restoreTasks();
     } catch (error) {
-      console.error('[Scheduler] 存储初始化失败，使用内存模式:', error);
+      logger.error('存储初始化失败，使用内存模式:', error);
     }
 
     // 加载配置中的任务
@@ -96,7 +96,7 @@ export class Scheduler {
       }
     }
 
-    console.log(`[Scheduler] 调度器已启动，${this.taskDefinitions.size} 个任务`);
+    logger.log(`调度器已启动，${this.taskDefinitions.size} 个任务`);
   }
 
   /**
@@ -138,9 +138,9 @@ export class Scheduler {
           enabled: Boolean(row.enabled),
         });
       }
-      console.log(`[Scheduler] 从存储恢复 ${rows.length} 个任务`);
+      logger.log(`从存储恢复 ${rows.length} 个任务`);
     } catch (error) {
-      console.error('[Scheduler] 恢复任务失败:', error);
+      logger.error('恢复任务失败:', error);
     }
   }
 
@@ -168,7 +168,7 @@ export class Scheduler {
       this.scheduleTask(task.id);
     }
 
-    console.log(`[Scheduler] 添加任务: ${task.name} (${task.cron})`);
+    logger.log(`添加任务: ${task.name} (${task.cron})`);
     return task;
   }
 
@@ -189,12 +189,12 @@ export class Scheduler {
         try {
           db.prepare('DELETE FROM scheduler_tasks WHERE id = ?').run(id);
         } catch (error) {
-          console.error('[Scheduler] 删除任务存储失败:', error);
+          logger.error('删除任务存储失败:', error);
         }
       }
     }
 
-    console.log(`[Scheduler] 删除任务: ${task.name}`);
+    logger.log(`删除任务: ${task.name}`);
     return true;
   }
 
@@ -216,7 +216,7 @@ export class Scheduler {
     // 更新存储
     this.persistTask(task);
 
-    console.log(`[Scheduler] 任务 ${task.name} ${task.enabled ? '已启用' : '已停用'}`);
+    logger.log(`任务 ${task.name} ${task.enabled ? '已启用' : '已停用'}`);
     return task;
   }
 
@@ -243,7 +243,7 @@ export class Scheduler {
 
     // 验证 cron 表达式
     if (!cron.validate(task.cron)) {
-      console.error(`[Scheduler] 无效的 cron 表达式: ${task.cron}`);
+      logger.error(`无效的 cron 表达式: ${task.cron}`);
       return;
     }
 
@@ -255,7 +255,7 @@ export class Scheduler {
     });
 
     this.tasks.set(id, scheduledTask);
-    console.log(`[Scheduler] 已调度: ${task.name} (${task.cron})`);
+    logger.log(`已调度: ${task.name} (${task.cron})`);
   }
 
   /**
@@ -276,7 +276,7 @@ export class Scheduler {
     const task = this.taskDefinitions.get(id);
     if (!task || !task.enabled) return;
 
-    console.log(`[Scheduler] 执行任务: ${task.name}`);
+    logger.log(`执行任务: ${task.name}`);
 
     // 更新最后执行时间
     task.lastRunAt = Date.now();
@@ -298,9 +298,9 @@ export class Scheduler {
       };
 
       this.messageQueue.enqueue(message, 'normal');
-      console.log(`[Scheduler] 任务 ${task.name} 已入队`);
+      logger.log(`任务 ${task.name} 已入队`);
     } else {
-      console.warn(`[Scheduler] 消息队列未设置，任务 ${task.name} 无法执行`);
+      logger.warn(`消息队列未设置，任务 ${task.name} 无法执行`);
     }
   }
 
@@ -329,7 +329,7 @@ export class Scheduler {
         task.lastRunAt || null
       );
     } catch (error) {
-      console.error('[Scheduler] 持久化任务失败:', error);
+      logger.error('持久化任务失败:', error);
     }
   }
 
@@ -340,7 +340,7 @@ export class Scheduler {
     for (const [id] of this.tasks) {
       this.stopTask(id);
     }
-    console.log('[Scheduler] 调度器已停止');
+    logger.log('调度器已停止');
   }
 
   /**

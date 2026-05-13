@@ -1,7 +1,7 @@
 /**
  * Claude Code Agent 适配器 - 将 ClaudeCodeExecutor 适配为 Agent 接口
  */
- 
+
 import type { Agent, AgentResult, AgentConfig } from '../types';
 import type { MessageContext } from '../../types/message';
 import type { ClaudeCodeConfig } from '../../config';
@@ -12,8 +12,17 @@ export class ClaudeCodeAgent implements Agent {
   readonly type = 'claude';
   private executor: ClaudeCodeExecutor;
 
-  constructor(options?: Partial<ClaudeCodeConfig>) {
-    this.executor = new ClaudeCodeExecutor(options);
+  constructor(optionsOrExecutor?: Partial<ClaudeCodeConfig> | ClaudeCodeExecutor) {
+    if (
+      optionsOrExecutor &&
+      typeof optionsOrExecutor === 'object' &&
+      'execute' in optionsOrExecutor
+    ) {
+      // Dependency injection: accept an existing executor instance
+      this.executor = optionsOrExecutor;
+    } else {
+      this.executor = new ClaudeCodeExecutor(optionsOrExecutor);
+    }
   }
 
   async execute(prompt: string, context?: MessageContext): Promise<AgentResult> {

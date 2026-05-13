@@ -2,15 +2,18 @@
  * 重试工具模块
  * 提供带指数退避的重试机制，用于处理临时性故障
  */
+import { createSafeLogger } from './logger';
+
+const logger = createSafeLogger('Retry');
 
 /**
  * 重试选项
  */
 export interface RetryOptions {
-  maxRetries: number;        // 最大重试次数
-  baseDelay: number;         // 基础延迟 (ms)
-  maxDelay: number;          // 最大延迟 (ms)
-  exponential: boolean;      // 是否指数退避
+  maxRetries: number; // 最大重试次数
+  baseDelay: number; // 基础延迟 (ms)
+  maxDelay: number; // 最大延迟 (ms)
+  exponential: boolean; // 是否指数退避
   onRetry?: (attempt: number, error: Error, delay: number) => void; // 重试回调
 }
 
@@ -19,8 +22,8 @@ export interface RetryOptions {
  */
 export const DEFAULT_RETRY_OPTIONS: RetryOptions = {
   maxRetries: 3,
-  baseDelay: 1000,    // 1 秒
-  maxDelay: 30000,    // 30 秒
+  baseDelay: 1000, // 1 秒
+  maxDelay: 30000, // 30 秒
   exponential: true,
 };
 
@@ -62,7 +65,7 @@ export function isRetryableError(error: Error): boolean {
     'not found',
     'invalid config',
     'command not found',
-    'enoent',  // 命令不存在
+    'enoent', // 命令不存在
   ];
 
   for (const pattern of nonRetryablePatterns) {
@@ -103,13 +106,13 @@ export async function withRetry<T>(
 
       // 检查是否可重试
       if (!isRetryableError(lastError)) {
-        console.log('[Retry] 不可重试的错误:', lastError.message);
+        logger.log('不可重试的错误:', lastError.message);
         throw lastError;
       }
 
       // 已达到最大重试次数
       if (attempt > maxRetries) {
-        console.log('[Retry] 达到最大重试次数，放弃');
+        logger.log('达到最大重试次数，放弃');
         throw lastError;
       }
 

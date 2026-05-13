@@ -10,6 +10,9 @@ import { existsSync, statSync } from 'fs';
 import { readFileSync } from 'fs';
 import axios from 'axios';
 import { config } from '../config';
+import { createSafeLogger } from './logger';
+
+const logger = createSafeLogger('Doctor');
 
 export interface DoctorResult {
   name: string;
@@ -30,7 +33,7 @@ export class Doctor {
   async run(): Promise<DoctorResult[]> {
     this.results = [];
 
-    console.log('🔍 开始系统诊断...\n');
+    logger.log('🔍 开始系统诊断...\n');
 
     await this.checkNodeVersion();
     await this.checkProjectFiles();
@@ -247,22 +250,22 @@ export class Doctor {
     const warnCount = this.results.filter(r => r.status === 'warn').length;
     const failCount = this.results.filter(r => r.status === 'fail').length;
 
-    console.log('═'.repeat(50));
+    logger.log('═'.repeat(50));
     for (const result of this.results) {
-      console.log(result.message);
+      logger.log(result.message);
       if (result.details) {
-        console.log('   ' + result.details);
+        logger.log('   ' + result.details);
       }
     }
-    console.log('═'.repeat(50));
-    console.log(`\n📊 诊断结果: ✅ ${passCount} | ⚠️ ${warnCount} | ❌ ${failCount}`);
+    logger.log('═'.repeat(50));
+    logger.log(`\n📊 诊断结果: ✅ ${passCount} | ⚠️ ${warnCount} | ❌ ${failCount}`);
 
     if (failCount > 0) {
-      console.log('\n❌ 存在失败项，请修复后重试。\n');
+      logger.log('\n❌ 存在失败项，请修复后重试。\n');
     } else if (warnCount > 0) {
-      console.log('\n⚠️ 存在警告项，建议检查。\n');
+      logger.log('\n⚠️ 存在警告项，建议检查。\n');
     } else {
-      console.log('\n✅ 所有检查通过，系统可以正常启动！\n');
+      logger.log('\n✅ 所有检查通过，系统可以正常启动！\n');
     }
   }
 }

@@ -6,6 +6,9 @@
 import { exec } from 'child_process';
 import axios, { type Method } from 'axios';
 import type { Hook, HookAction, HookContext, HookEvent } from './types';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Hooks');
 
 class HookRunner {
   private hooks: Map<string, Hook> = new Map();
@@ -13,7 +16,7 @@ class HookRunner {
   /** 注册钩子 */
   register(hook: Hook): void {
     this.hooks.set(hook.id, hook);
-    console.log(`[Hooks] 注册钩子: ${hook.id} (event: ${hook.event})`);
+    logger.log(`注册钩子: ${hook.id} (event: ${hook.event})`);
   }
 
   /** 注销钩子 */
@@ -29,7 +32,7 @@ class HookRunner {
 
     if (matchingHooks.length === 0) return;
 
-    console.log(`[Hooks] 触发事件: ${event}，匹配 ${matchingHooks.length} 个钩子`);
+    logger.log(`触发事件: ${event}，匹配 ${matchingHooks.length} 个钩子`);
 
     for (const hook of matchingHooks) {
       const isAsync = hook.async !== false; // 默认异步
@@ -38,14 +41,14 @@ class HookRunner {
         if (isAsync) {
           // 异步执行，不等待结果
           this.executeAction(hook.action, context).catch(err => {
-            console.error(`[Hooks] 钩子 ${hook.id} 执行失败:`, err.message);
+            logger.error(`钩子 ${hook.id} 执行失败:`, err.message);
           });
         } else {
           // 同步执行，等待结果
           await this.executeAction(hook.action, context);
         }
       } catch (error) {
-        console.error(`[Hooks] 钩子 ${hook.id} 执行失败:`, error);
+        logger.error(`钩子 ${hook.id} 执行失败:`, error);
       }
     }
   }
@@ -80,7 +83,7 @@ class HookRunner {
           return;
         }
         if (stdout) {
-          console.log(`[Hooks] Shell 输出: ${stdout.substring(0, 200)}`);
+          logger.log(`Shell 输出: ${stdout.substring(0, 200)}`);
         }
         resolve();
       });

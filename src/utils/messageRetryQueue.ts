@@ -3,6 +3,9 @@
  * 确保每条消息都能成功发送
  */
 import { calculateDelay } from './retry';
+import { createSafeLogger } from './logger';
+
+const logger = createSafeLogger('MessageRetryQueue');
 
 export type MessageType = 'text' | 'markdown';
 
@@ -61,8 +64,8 @@ export class MessageRetryQueue {
     };
 
     this.queue.set(id, message);
-    console.log(
-      `[RetryQueue] 添加消息到队列: ${id} (类型: ${type}, 目标: ${conversationId.substring(0, 20)}...)`
+    logger.log(
+      `添加消息到队列: ${id} (类型: ${type}, 目标: ${conversationId.substring(0, 20)}...)`
     );
   }
 
@@ -95,7 +98,7 @@ export class MessageRetryQueue {
     const msg = this.queue.get(id);
     if (msg) {
       msg.status = 'sent';
-      console.log(`[RetryQueue] 消息发送成功: ${id} (重试 ${msg.retryCount} 次)`);
+      logger.log(`消息发送成功: ${id} (重试 ${msg.retryCount} 次)`);
     }
   }
 
@@ -110,13 +113,11 @@ export class MessageRetryQueue {
 
       if (msg.retryCount >= msg.maxRetries) {
         msg.status = 'failed';
-        console.error(`[RetryQueue] 消息发送失败，已达最大重试次数: ${id}`);
+        logger.error(`消息发送失败，已达最大重试次数: ${id}`);
       } else {
         msg.status = 'pending';
         const delay = this.calculateDelay(msg.retryCount);
-        console.warn(
-          `[RetryQueue] 消息发送失败，将在 ${delay / 1000}s 后重试: ${id}, 错误: ${error}`
-        );
+        logger.warn(`消息发送失败，将在 ${delay / 1000}s 后重试: ${id}, 错误: ${error}`);
       }
     }
   }
@@ -177,7 +178,7 @@ export class MessageRetryQueue {
     }
 
     if (cleaned > 0) {
-      console.log(`[RetryQueue] 清理了 ${cleaned} 条过期消息`);
+      logger.log(`清理了 ${cleaned} 条过期消息`);
     }
   }
 

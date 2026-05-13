@@ -10,7 +10,10 @@
 import { spawn, ChildProcess } from 'child_process';
 import { config } from '../config';
 import { withRetry } from '../utils/retry';
+import { createSafeLogger } from '../utils/logger';
 import type { MessageContext } from '../types/message';
+
+const logger = createSafeLogger('OpenCode');
 
 export interface OpenCodeResult {
   success: boolean;
@@ -66,9 +69,9 @@ export class OpenCodeExecutor {
   async execute(prompt: string, context?: MessageContext): Promise<OpenCodeResult> {
     const startTime = Date.now();
 
-    console.log(`📝 执行 Open Code: ${prompt.substring(0, 50)}...`);
+    logger.log(`📝 执行 Open Code: ${prompt.substring(0, 50)}...`);
     if (context?.userId) {
-      console.log(`   用户: ${context.userName || context.userId}`);
+      logger.log(`   用户: ${context.userName || context.userId}`);
     }
 
     try {
@@ -89,8 +92,8 @@ export class OpenCodeExecutor {
         maxDelay: this.config.retryMaxDelay || 10000,
         exponential: true,
         onRetry: (attempt, error, delay) => {
-          console.warn(
-            `[OpenCode] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
+          logger.warn(
+            `执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
           );
         },
       });
@@ -104,7 +107,7 @@ export class OpenCodeExecutor {
         executionTime: Date.now() - startTime,
       };
     } catch (error) {
-      console.error('[OpenCode] 执行失败:', error);
+      logger.error('执行失败:', error);
 
       if (error instanceof InputValidationError) {
         return {
@@ -201,9 +204,7 @@ export class OpenCodeExecutor {
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      console.log(
-        `[OpenCode] 执行命令: ${this.config.command} ${args.join(' ')} (通过 stdin 传递输入)`
-      );
+      logger.log(`执行命令: ${this.config.command} ${args.join(' ')} (通过 stdin 传递输入)`);
 
       // 启动 Open Code CLI 进程，使用 pipe stdin
       processInstance = spawn(this.config.command, args, {
@@ -242,13 +243,13 @@ export class OpenCodeExecutor {
           timeoutId = null;
         }
 
-        console.log(`[OpenCode] 进程结束，退出码: ${code}`);
+        logger.log(`进程结束，退出码: ${code}`);
         // 调试：打印 stdout 和 stderr 内容
         if (stdout) {
-          console.log(`[OpenCode] stdout: ${stdout.substring(0, 500)}`);
+          logger.log(`stdout: ${stdout.substring(0, 500)}`);
         }
         if (stderr) {
-          console.log(`[OpenCode] stderr: ${stderr.substring(0, 500)}`);
+          logger.log(`stderr: ${stderr.substring(0, 500)}`);
         }
 
         resolve({
@@ -271,7 +272,7 @@ export class OpenCodeExecutor {
           timeoutId = null;
         }
 
-        console.error('[OpenCode] 进程错误:', error);
+        logger.error('进程错误:', error);
 
         // 如果是命令未找到
         if ('code' in error && error.code === 'ENOENT') {
@@ -296,7 +297,7 @@ export class OpenCodeExecutor {
       // 超时处理
       timeoutId = setTimeout(() => {
         if (processInstance && !processInstance.killed && !resolved) {
-          console.log(`[OpenCode] 执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
+          logger.log(`执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
           resolved = true;
           processInstance.kill('SIGTERM');
 
@@ -330,7 +331,7 @@ export class OpenCodeExecutor {
   ): Promise<OpenCodeResult> {
     const startTime = Date.now();
 
-    console.log(`📝 流式执行 Open Code: ${prompt.substring(0, 50)}...`);
+    logger.log(`📝 流式执行 Open Code: ${prompt.substring(0, 50)}...`);
 
     try {
       const fullPrompt = this.buildPromptWithContext(prompt, context);

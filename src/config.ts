@@ -1,8 +1,6 @@
 /**
  * 配置模块 - 集中管理所有配置项，包含完整的值域验证
  */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
 import dotenv from 'dotenv';
 import { createSafeLogger } from './utils/logger';
 
@@ -184,17 +182,17 @@ function parseEnvNumber(key: string, defaultValue: number, min?: number, max?: n
 
   const parsed = parseInt(value, 10);
   if (isNaN(parsed)) {
-    console.warn(`[Config] ${key} 的值 "${value}" 不是有效数字，使用默认值 ${defaultValue}`);
+    logger.warn(`${key} 的值 "${value}" 不是有效数字，使用默认值 ${defaultValue}`);
     return defaultValue;
   }
 
   if (min !== undefined && parsed < min) {
-    console.warn(`[Config] ${key} 的值 ${parsed} 小于最小值 ${min}，使用最小值`);
+    logger.warn(`${key} 的值 ${parsed} 小于最小值 ${min}，使用最小值`);
     return min;
   }
 
   if (max !== undefined && parsed > max) {
-    console.warn(`[Config] ${key} 的值 ${parsed} 大于最大值 ${max}，使用最大值`);
+    logger.warn(`${key} 的值 ${parsed} 大于最大值 ${max}，使用最大值`);
     return max;
   }
 
@@ -206,7 +204,7 @@ function parseEnvString(key: string, defaultValue: string, allowedValues?: strin
   if (!value) return defaultValue;
 
   if (allowedValues && !allowedValues.includes(value)) {
-    console.warn(`[Config] ${key} 的值 "${value}" 不在允许列表中，使用默认值 "${defaultValue}"`);
+    logger.warn(`${key} 的值 "${value}" 不在允许列表中，使用默认值 "${defaultValue}"`);
     return defaultValue;
   }
 
@@ -321,13 +319,13 @@ export const config = {
     tasks: (() => {
       try {
         const tasksJson = process.env.SCHEDULER_TASKS;
-        return tasksJson ? JSON.parse(tasksJson) : [];
+        return tasksJson ? (JSON.parse(tasksJson) as SchedulerTaskConfig[]) : [];
       } catch (err: unknown) {
         logger.debug(
           'SCHEDULER_TASKS JSON 解析失败，使用空数组:',
           err instanceof Error ? err.message : String(err)
         );
-        return [];
+        return [] as SchedulerTaskConfig[];
       }
     })(),
   },
@@ -345,25 +343,25 @@ export const config = {
     providers: (() => {
       try {
         const providersJson = process.env.ROUTER_PROVIDERS;
-        return providersJson ? JSON.parse(providersJson) : [];
+        return providersJson ? (JSON.parse(providersJson) as RouterProviderConfig[]) : [];
       } catch (err: unknown) {
         logger.debug(
           'ROUTER_PROVIDERS JSON 解析失败，使用空数组:',
           err instanceof Error ? err.message : String(err)
         );
-        return [];
+        return [] as RouterProviderConfig[];
       }
     })(),
     rules: (() => {
       try {
         const rulesJson = process.env.ROUTER_RULES;
-        return rulesJson ? JSON.parse(rulesJson) : [];
+        return rulesJson ? (JSON.parse(rulesJson) as RouterRuleConfig[]) : [];
       } catch (err: unknown) {
         logger.debug(
           'ROUTER_RULES JSON 解析失败，使用空数组:',
           err instanceof Error ? err.message : String(err)
         );
-        return [];
+        return [] as RouterRuleConfig[];
       }
     })(),
   },
@@ -461,25 +459,25 @@ export function validateConfig(): void {
 
   // 打印配置摘要
   const aiProviderName = config.aiProvider === 'claude' ? 'Claude Code' : 'OpenCode';
-  console.log('✅ 配置验证通过');
-  console.log(`   - AI Provider: ${aiProviderName}`);
-  console.log(`   - Gateway: ${config.gateway.host}:${config.gateway.port}`);
-  console.log(`   - 会话 TTL: ${config.session.ttl / 1000 / 60} 分钟`);
-  console.log(`   - 最大历史消息: ${config.session.maxHistoryMessages}`);
-  console.log(`   - 用户最大并发: ${config.messageQueue.maxConcurrentPerUser}`);
-  console.log(`   - 全局最大并发: ${config.messageQueue.maxConcurrentGlobal}`);
-  console.log(`   - 队列轮询间隔: ${config.messageQueue.pollInterval}ms`);
-  console.log(
+  logger.log('✅ 配置验证通过');
+  logger.log(`   - AI Provider: ${aiProviderName}`);
+  logger.log(`   - Gateway: ${config.gateway.host}:${config.gateway.port}`);
+  logger.log(`   - 会话 TTL: ${config.session.ttl / 1000 / 60} 分钟`);
+  logger.log(`   - 最大历史消息: ${config.session.maxHistoryMessages}`);
+  logger.log(`   - 用户最大并发: ${config.messageQueue.maxConcurrentPerUser}`);
+  logger.log(`   - 全局最大并发: ${config.messageQueue.maxConcurrentGlobal}`);
+  logger.log(`   - 队列轮询间隔: ${config.messageQueue.pollInterval}ms`);
+  logger.log(
     `   - AI 超时: ${config.aiProvider === 'claude' ? config.claude.timeout : config.ai.timeout}ms`
   );
-  console.log(`   - 持久化存储: ${config.messageQueue.enablePersistence ? '启用' : '禁用'}`);
-  console.log(`   - 日志级别: ${config.logging.level}`);
-  console.log(`   - 日志格式: ${config.logging.format}`);
-  console.log(`   - Stream 模式: 启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
-  console.log(`   - 媒体处理: ${config.media.enabled ? '启用' : '禁用'}`);
-  console.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
-  console.log(`   - 流式输出: ${config.streaming.enabled ? '启用' : '禁用'}`);
-  console.log(
+  logger.log(`   - 持久化存储: ${config.messageQueue.enablePersistence ? '启用' : '禁用'}`);
+  logger.log(`   - 日志级别: ${config.logging.level}`);
+  logger.log(`   - 日志格式: ${config.logging.format}`);
+  logger.log(`   - Stream 模式: 启用 (自动重连: ${config.stream.maxReconnectAttempts} 次)`);
+  logger.log(`   - 媒体处理: ${config.media.enabled ? '启用' : '禁用'}`);
+  logger.log(`   - 路由器: ${config.router.enabled ? '启用' : '禁用'}`);
+  logger.log(`   - 流式输出: ${config.streaming.enabled ? '启用' : '禁用'}`);
+  logger.log(
     `   - 持久化会话: ${config.persistentSession.enabled ? '启用' : '禁用'}${config.persistentSession.enabled ? ` (最大 ${config.persistentSession.maxSessions}, 预热 ${config.persistentSession.warmUpSessions}, 空闲 ${config.persistentSession.idleTimeout / 1000 / 60}min)` : ''}`
   );
 }

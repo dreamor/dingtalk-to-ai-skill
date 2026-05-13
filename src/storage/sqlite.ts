@@ -88,7 +88,7 @@ export class SQLiteStorage {
     this.createTables(db);
 
     this.isInitialized = true;
-    console.log(`[SQLite] 数据库已初始化: ${this.config.dbPath}`);
+    logger.log(`数据库已初始化: ${this.config.dbPath}`);
 
     return db;
   }
@@ -582,7 +582,7 @@ export class SQLiteStorage {
     if (this.db) {
       this.db.close();
       this.isInitialized = false;
-      console.log('[SQLite] 数据库连接已关闭');
+      logger.log('数据库连接已关闭');
     }
   }
 
@@ -592,7 +592,7 @@ export class SQLiteStorage {
   optimize(): void {
     this.db.pragma('optimize');
     this.db.exec('VACUUM');
-    console.log('[SQLite] 数据库优化完成');
+    logger.log('数据库优化完成');
   }
 
   /**

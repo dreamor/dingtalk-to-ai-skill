@@ -3,6 +3,9 @@
  */
 import { randomUUID } from 'crypto';
 import { AIProvider, ProviderRegistry } from './provider';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Router');
 
 export type RoutingCondition =
   | { type: 'keyword'; keywords: string[]; match: 'any' | 'all' | 'prefix' }
@@ -35,7 +38,9 @@ export class MessageRouter {
     };
     this.rules.push(newRule);
     this.rules.sort((a, b) => a.priority - b.priority);
-    console.log(`[Router] 添加路由规则: ${newRule.name} (priority: ${newRule.priority}, provider: ${newRule.provider})`);
+    logger.log(
+      `添加路由规则: ${newRule.name} (priority: ${newRule.priority}, provider: ${newRule.provider})`
+    );
     return newRule;
   }
 
@@ -43,7 +48,7 @@ export class MessageRouter {
     const index = this.rules.findIndex(r => r.id === id);
     if (index === -1) return false;
     const removed = this.rules.splice(index, 1)[0];
-    console.log(`[Router] 移除路由规则: ${removed.name}`);
+    logger.log(`移除路由规则: ${removed.name}`);
     return true;
   }
 
@@ -69,15 +74,15 @@ export class MessageRouter {
       if (this.matchCondition(rule.condition, message, userId, conversationId)) {
         const provider = this.registry.get(rule.provider);
         if (provider && provider.enabled) {
-          console.log(`[Router] 消息匹配规则 "${rule.name}"，路由到 Provider: ${provider.name}`);
+          logger.log(`消息匹配规则 "${rule.name}"，路由到 Provider: ${provider.name}`);
           return provider;
         }
-        console.warn(`[Router] 规则 "${rule.name}" 匹配但 Provider "${rule.provider}" 不可用，继续匹配`);
+        logger.warn(`规则 "${rule.name}" 匹配但 Provider "${rule.provider}" 不可用，继续匹配`);
       }
     }
 
     const defaultProvider = this.registry.getDefault();
-    console.log(`[Router] 无规则匹配，使用默认 Provider: ${defaultProvider.name}`);
+    logger.log(`无规则匹配，使用默认 Provider: ${defaultProvider.name}`);
     return defaultProvider;
   }
 
@@ -112,7 +117,7 @@ export class MessageRouter {
         try {
           return new RegExp(condition.pattern, 'i').test(message);
         } catch {
-          console.warn(`[Router] 正则表达式无效: ${condition.pattern}`);
+          logger.warn(`正则表达式无效: ${condition.pattern}`);
           return false;
         }
 

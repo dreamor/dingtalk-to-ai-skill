@@ -7,8 +7,7 @@
  * 3. 启动 Stream 模式接收钉钉消息
  * 4. 处理消息并调用 AI CLI
  */
- 
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+
 import { config, validateConfig } from './config';
 import { DingtalkService } from './dingtalk/dingtalk';
 import { DingtalkStreamService } from './dingtalk/stream';
@@ -24,10 +23,13 @@ import {
   isAlertEnabled,
   setStreamService,
 } from './utils/alert';
-import { enableGlobalSanitize } from './utils/logger';
+import { createSafeLogger, enableGlobalSanitize } from './utils/logger';
 import { Scheduler } from './scheduler';
 import { ProviderRegistry, MessageRouter } from './router';
+import type { RoutingCondition } from './router';
 import { MemoryManager, MemoryStore } from './memory';
+
+const logger = createSafeLogger('App');
 
 // 全局服务引用，用于优雅关闭
 let globalStreamService: DingtalkStreamService | null = null;
@@ -40,15 +42,15 @@ async function main(): Promise<void> {
   // 启用全局日志脱敏
   enableGlobalSanitize();
 
-  console.log('🚀 启动钉钉 + AI 集成系统...');
-  console.log('📦 所有消息将通过 AI CLI 处理');
+  logger.log('🚀 启动钉钉 + AI 集成系统...');
+  logger.log('📦 所有消息将通过 AI CLI 处理');
 
   // 验证配置
   validateConfig();
 
   // 显示权限模式警告
   if (config.claude.permissionMode !== 'default') {
-    console.warn(`⚠️  权限模式: ${config.claude.permissionMode}`);
+    logger.warn(`⚠️  权限模式: ${config.claude.permissionMode}`);
   }
 
   // 初始化基础模块
@@ -58,9 +60,9 @@ async function main(): Promise<void> {
   // 检查 AI CLI 是否可用
   const opencodeAvailable = await openCodeExecutor.isAvailable();
   if (opencodeAvailable) {
-    console.log('✅ AI CLI 可用');
+    logger.log('✅ AI CLI 可用');
   } else {
-    console.log('⚠️ AI CLI 未安装，请先安装 opencode 或 claude');
+    logger.log('⚠️ AI CLI 未安装，请先安装 opencode 或 claude');
   }
 
   // 初始化会话管理
@@ -95,11 +97,11 @@ async function main(): Promise<void> {
     timeWindow: 60000,
   });
 
-  console.log('✅ 基础模块初始化完成');
-  console.log(`   - 会话管理器：已启动 (TTL: ${config.session.ttl / 1000 / 60}分钟)`);
-  console.log(`   - 流量控制：已启动 (令牌：${config.messageQueue.rateLimitMaxTokens})`);
-  console.log(`   - 并发控制：已启动 (用户：${config.messageQueue.maxConcurrentPerUser})`);
-  console.log(`   - AI 超时：${config.ai.timeout / 1000}秒`);
+  logger.log('✅ 基础模块初始化完成');
+  logger.log(`   - 会话管理器：已启动 (TTL: ${config.session.ttl / 1000 / 60}分钟)`);
+  logger.log(`   - 流量控制：已启动 (令牌：${config.messageQueue.rateLimitMaxTokens})`);
+  logger.log(`   - 并发控制：已启动 (用户：${config.messageQueue.maxConcurrentPerUser})`);
+  logger.log(`   - AI 超时：${config.ai.timeout / 1000}秒`);
 
   // 初始化定时任务调度器
   const scheduler = new Scheduler(config.scheduler);
@@ -107,7 +109,7 @@ async function main(): Promise<void> {
   scheduler.setMessageQueue(messageQueue);
   await scheduler.init();
   if (config.scheduler.enabled) {
-    console.log(`✅ 定时任务调度器已启动 (${scheduler.listTasks().length} 个任务)`);
+    logger.log(`✅ 定时任务调度器已启动 (${scheduler.listTasks().length} 个任务)`);
   }
 
   // 初始化项目记忆模块
@@ -123,7 +125,7 @@ async function main(): Promise<void> {
       boostIncrement: config.memory.boostIncrement,
     });
     _globalMemoryManager = memoryManager;
-    console.log(
+    logger.log(
       `✅ 项目记忆模块已启动 (自动摘要: ${config.memory.autoSummarizeEnabled ? '启用' : '禁用'})`
     );
   }
@@ -148,7 +150,7 @@ async function main(): Promise<void> {
     const { StreamingCardManager } = await import('./dingtalk/streamingCard');
     const streamingCardManager = new StreamingCardManager();
     gateway.setStreamingCardManager(streamingCardManager);
-    console.log('✅ 流式卡片管理器已初始化');
+    logger.log('✅ 流式卡片管理器已初始化');
   }
 
   // 初始化路由器
@@ -168,13 +170,13 @@ async function main(): Promise<void> {
         name: ruleConfig.name,
         enabled: ruleConfig.enabled,
         priority: ruleConfig.priority,
-        condition: ruleConfig.condition,
+        condition: ruleConfig.condition as RoutingCondition,
         provider: ruleConfig.provider,
       });
     }
 
     gateway.setRouter(messageRouter, providerRegistry);
-    console.log(
+    logger.log(
       `✅ 路由器已启动 (${providerRegistry.size()} 个 Provider, ${messageRouter.listRules().length} 条规则)`
     );
   }
@@ -182,22 +184,22 @@ async function main(): Promise<void> {
   // 启动 Gateway
   try {
     await gateway.start(config.gateway.port);
-    console.log(`✅ Gateway 服务已启动，监听端口：${config.gateway.port}`);
-    console.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
-    console.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
-    console.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
+    logger.log(`✅ Gateway 服务已启动，监听端口：${config.gateway.port}`);
+    logger.log(`   - 健康检查：http://${config.gateway.host}:${config.gateway.port}/health`);
+    logger.log(`   - 测试接口：http://${config.gateway.host}:${config.gateway.port}/api/test`);
+    logger.log(`   - 状态检查：http://${config.gateway.host}:${config.gateway.port}/api/status`);
 
     // 通知 PM2 服务已就绪
     if (process.send) {
       process.send('ready');
     }
   } catch (error) {
-    console.error('❌ 启动 Gateway 失败:', error);
+    logger.error('❌ 启动 Gateway 失败:', error);
     process.exit(1);
   }
 
   // 启动 Stream 模式（唯一模式）
-  console.log('\n🌊 启动 Stream 模式（钉钉官方推荐，无需内网穿透）...');
+  logger.log('\n🌊 启动 Stream 模式（钉钉官方推荐，无需内网穿透）...');
 
   const streamService = new DingtalkStreamService();
   globalStreamService = streamService;
@@ -208,17 +210,17 @@ async function main(): Promise<void> {
     const downloader = new MediaDownloader(dingtalkService);
     const mediaProcessor = new MediaProcessor(downloader, config.media.enabled);
     streamService.setMediaProcessor(mediaProcessor);
-    console.log('✅ 媒体处理器已设置到 Stream 服务');
+    logger.log('✅ 媒体处理器已设置到 Stream 服务');
   }
 
   // 设置消息处理器
   streamService.setMessageHandler(
     async (userId, userName, content, conversationId, sessionWebhook, conversationType) => {
       const startTime = Date.now();
-      console.log(`[Stream] 收到消息：${userName}(${userId}): ${content}`);
-      console.log(`[Stream] conversationId: ${conversationId}`);
-      console.log(`[Stream] sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
-      console.log(`[Stream] conversationType: ${conversationType || 'group'}`);
+      logger.log(`收到消息：${userName}(${userId}): ${content}`);
+      logger.log(`conversationId: ${conversationId}`);
+      logger.log(`sessionWebhook: ${sessionWebhook ? '✅ 有效' : '❌ 无效'}`);
+      logger.log(`conversationType: ${conversationType || 'group'}`);
 
       try {
         // 使用超时包装消息处理，防止长时间阻塞
@@ -244,27 +246,27 @@ async function main(): Promise<void> {
         ]);
 
         const processingTime = Date.now() - startTime;
-        console.log(`[Stream] 消息处理完成，耗时: ${processingTime}ms`);
+        logger.log(`消息处理完成，耗时: ${processingTime}ms`);
 
         // 使用 sessionWebhook 发送回复
         const replyTitle = config.aiProvider === 'claude' ? 'Claude Code 回复' : 'AI 回复';
         if (result.success && result.data?.result) {
           await streamService.sendMarkdownMessage(conversationId, replyTitle, result.data.result);
-          console.log(`[Stream] ✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
+          logger.log(`✅ 回复发送成功 (总耗时: ${Date.now() - startTime}ms)`);
         } else if (!result.success) {
           const errorMessage = `❌ ${result.message}`;
           await streamService.sendTextMessage(conversationId, errorMessage);
-          console.log(`[Stream] ⚠️ 处理失败: ${result.message}`);
+          logger.log(`⚠️ 处理失败: ${result.message}`);
         }
       } catch (error) {
         const processingTime = Date.now() - startTime;
-        console.error(`[Stream] 消息处理失败 (${processingTime}ms):`, error);
+        logger.error(`消息处理失败 (${processingTime}ms):`, error);
         const errorMessage = `❌ 消息处理失败\n\n错误：${error instanceof Error ? error.message : '未知错误'}`;
 
         try {
           await streamService.sendTextMessage(conversationId, errorMessage);
         } catch (sendError) {
-          console.error('[Stream] 发送错误消息失败:', sendError);
+          logger.error('发送错误消息失败:', sendError);
         }
       }
     }
@@ -273,82 +275,82 @@ async function main(): Promise<void> {
   // 启动 Stream 服务（内置重连机制）
   try {
     await streamService.start();
-    console.log('✅ Stream 模式已启动');
-    console.log('   - 无需内网穿透，钉钉会主动推送消息');
-    console.log(`   - 自动重连: 已启用 (最多 ${config.stream.maxReconnectAttempts} 次)`);
-    console.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
+    logger.log('✅ Stream 模式已启动');
+    logger.log('   - 无需内网穿透，钉钉会主动推送消息');
+    logger.log(`   - 自动重连: 已启用 (最多 ${config.stream.maxReconnectAttempts} 次)`);
+    logger.log('   - 在你的钉钉应用后台配置 Stream 模式即可');
 
     // 绑定 Stream 服务到告警模块
     setStreamService(streamService);
 
     // 发送服务启动通知
     if (isAlertEnabled()) {
-      notifyServiceStart().catch(err => console.error('[Alert] 发送启动通知失败:', err));
+      notifyServiceStart().catch(err => logger.error('发送启动通知失败:', err));
     }
   } catch (error) {
-    console.error('❌ Stream 模式启动失败:', error);
-    console.error('   请检查网络连接和配置是否正确');
+    logger.error('❌ Stream 模式启动失败:', error);
+    logger.error('   请检查网络连接和配置是否正确');
     process.exit(1);
   }
 }
 
 // 优雅关闭处理
 async function cleanupResources(): Promise<void> {
-  console.log('🧹 开始清理资源...');
+  logger.log('🧹 开始清理资源...');
 
   // 停止 Stream 服务
   if (globalStreamService) {
     try {
-      console.log('   - 停止 Stream 服务...');
+      logger.log('   - 停止 Stream 服务...');
       await globalStreamService.stop();
-      console.log('   ✅ Stream 服务已停止');
+      logger.log('   ✅ Stream 服务已停止');
     } catch (error) {
-      console.error('   ❌ 停止 Stream 服务时出错:', error);
+      logger.error('   ❌ 停止 Stream 服务时出错:', error);
     }
   }
 
   // 停止 Gateway
   if (globalGateway) {
     try {
-      console.log('   - 停止 Gateway 服务...');
+      logger.log('   - 停止 Gateway 服务...');
       await globalGateway.stop();
-      console.log('   ✅ Gateway 服务已停止');
+      logger.log('   ✅ Gateway 服务已停止');
     } catch (error) {
-      console.error('   ❌ 停止 Gateway 服务时出错:', error);
+      logger.error('   ❌ 停止 Gateway 服务时出错:', error);
     }
   }
 
   // 清理会话管理器
   if (globalSessionManager) {
     try {
-      console.log('   - 清理会话管理器...');
+      logger.log('   - 清理会话管理器...');
       globalSessionManager.stopCleanupService();
-      console.log('   ✅ 会话管理器已清理');
+      logger.log('   ✅ 会话管理器已清理');
     } catch (error) {
-      console.error('   ❌ 清理会话管理器时出错:', error);
+      logger.error('   ❌ 清理会话管理器时出错:', error);
     }
   }
 
   // 停止调度器
   if (globalScheduler) {
     try {
-      console.log('   - 停止调度器...');
+      logger.log('   - 停止调度器...');
       globalScheduler.stop();
-      console.log('   ✅ 调度器已停止');
+      logger.log('   ✅ 调度器已停止');
     } catch (error) {
-      console.error('   ❌ 停止调度器时出错:', error);
+      logger.error('   ❌ 停止调度器时出错:', error);
     }
   }
 
-  console.log('✅ 所有资源清理完成');
+  logger.log('✅ 所有资源清理完成');
 }
 
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('SIGINT', async () => {
-  console.log('\n🛑 接收到关闭信号，正在清理...');
+  logger.log('\n🛑 接收到关闭信号，正在清理...');
   if (isAlertEnabled()) {
     notifyServiceStop('收到 SIGINT 信号').catch(err =>
-      console.warn('[Shutdown] 关闭通知发送失败:', err instanceof Error ? err.message : String(err))
+      logger.warn('关闭通知发送失败:', err instanceof Error ? err.message : String(err))
     );
   }
   await cleanupResources();
@@ -357,10 +359,10 @@ process.on('SIGINT', async () => {
 
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('SIGTERM', async () => {
-  console.log('\n🛑 接收到终止信号，正在清理...');
+  logger.log('\n🛑 接收到终止信号，正在清理...');
   if (isAlertEnabled()) {
     notifyServiceStop('收到 SIGTERM 信号').catch(err =>
-      console.warn('[Shutdown] 关闭通知发送失败:', err instanceof Error ? err.message : String(err))
+      logger.warn('关闭通知发送失败:', err instanceof Error ? err.message : String(err))
     );
   }
   await cleanupResources();
@@ -369,15 +371,15 @@ process.on('SIGTERM', async () => {
 
 // 捕获未处理的 Promise 拒绝
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ 未处理的 Promise 拒绝:');
-  console.error('   原因:', reason);
-  console.error('   Promise:', promise);
+  logger.error('❌ 未处理的 Promise 拒绝:');
+  logger.error('   原因:', reason);
+  logger.error('   Promise:', promise);
 
   // 发送告警
   if (isAlertEnabled()) {
     const reasonStr = reason instanceof Error ? reason.message : String(reason);
     notifyError('未处理的 Promise 拒绝', reasonStr).catch(err =>
-      console.warn('[Alert] 错误告警发送失败:', err instanceof Error ? err.message : String(err))
+      logger.warn('错误告警发送失败:', err instanceof Error ? err.message : String(err))
     );
   }
 });
@@ -385,14 +387,14 @@ process.on('unhandledRejection', (reason, promise) => {
 // 捕获未捕获的异常
 // eslint-disable-next-line @typescript-eslint/no-misused-promises
 process.on('uncaughtException', async error => {
-  console.error('❌ 未捕获的异常:');
-  console.error('   错误:', error.message);
-  console.error('   堆栈:', error.stack);
+  logger.error('❌ 未捕获的异常:');
+  logger.error('   错误:', error.message);
+  logger.error('   堆栈:', error.stack);
 
   // 发送告警
   if (isAlertEnabled()) {
     await notifyError('未捕获的异常', error.message, error.stack).catch(err =>
-      console.warn('[Alert] 错误告警发送失败:', err instanceof Error ? err.message : String(err))
+      logger.warn('错误告警发送失败:', err instanceof Error ? err.message : String(err))
     );
   }
 
@@ -406,6 +408,6 @@ process.on('uncaughtException', async error => {
 });
 
 main().catch(error => {
-  console.error('❌ 启动过程中发生错误:', error);
+  logger.error('❌ 启动过程中发生错误:', error);
   process.exit(1);
 });

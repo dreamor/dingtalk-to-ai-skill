@@ -2,6 +2,9 @@
  * 互动卡片模块 - 构建和发送钉钉互动卡片消息
  */
 import axios from 'axios';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Cards');
 
 export interface CardButton {
   text: string;
@@ -110,21 +113,21 @@ export class CardSender {
     try {
       const sessionInfo = this.pendingMessages.get(conversationId);
       if (!sessionInfo?.sessionWebhook) {
-        console.error(`[Card] sessionWebhook not found for ${conversationId}`);
+        logger.error(`sessionWebhook not found for ${conversationId}`);
         return false;
       }
 
-      console.log(`[Card] Sending card to ${conversationId.substring(0, 30)}...`);
+      logger.log(`Sending card to ${conversationId.substring(0, 30)}...`);
 
       await axios.post(sessionInfo.sessionWebhook, cardData, {
         timeout: 10000,
       });
 
-      console.log('[Card] Card sent successfully');
+      logger.log('Card sent successfully');
       return true;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
-      console.error('[Card] Failed to send card:', msg);
+      logger.error('Failed to send card:', msg);
       return false;
     }
   }
@@ -149,7 +152,7 @@ export class CardCallbackHandler {
 
   registerHandler(action: string, handler: CardCallbackFn): void {
     this.handlers.set(action, handler);
-    console.log(`[CardCallback] Registered handler for action: ${action}`);
+    logger.log(`Registered handler for action: ${action}`);
   }
 
   setDefaultHandler(handler: CardCallbackFn): void {
@@ -159,13 +162,13 @@ export class CardCallbackHandler {
   async handleCallback(data: CardCallbackData): Promise<void> {
     const handler = this.handlers.get(data.action);
     if (handler) {
-      console.log(`[CardCallback] Handling action: ${data.action}`);
+      logger.log(`Handling action: ${data.action}`);
       await handler(data);
     } else if (this.defaultHandler) {
-      console.log(`[CardCallback] Using default handler for action: ${data.action}`);
+      logger.log(`Using default handler for action: ${data.action}`);
       await this.defaultHandler(data);
     } else {
-      console.warn(`[CardCallback] No handler for action: ${data.action}`);
+      logger.warn(`No handler for action: ${data.action}`);
     }
   }
 

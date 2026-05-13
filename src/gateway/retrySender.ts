@@ -3,6 +3,9 @@
  * 负责管理发送失败的消息并自动重试
  */
 import { calculateDelay } from '../utils/retry';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('RetrySender');
 
 /**
  * 重试消息类型
@@ -81,15 +84,15 @@ export class RetrySender {
    */
   start(): void {
     if (this.isRunning) {
-      console.log('[RetrySender] 已经在运行中');
+      logger.log('已经在运行中');
       return;
     }
 
     this.isRunning = true;
-    console.log('[RetrySender] 重试发送器已启动');
-    console.log(`  - 最大重试次数: ${this.config.maxRetries}`);
-    console.log(`  - 重试延迟: ${this.config.baseDelay}ms - ${this.config.maxDelay}ms`);
-    console.log(`  - 检查间隔: ${this.config.checkInterval}ms`);
+    logger.log('重试发送器已启动');
+    logger.log(`  - 最大重试次数: ${this.config.maxRetries}`);
+    logger.log(`  - 重试延迟: ${this.config.baseDelay}ms - ${this.config.maxDelay}ms`);
+    logger.log(`  - 检查间隔: ${this.config.checkInterval}ms`);
 
     this.scheduleNextCheck();
   }
@@ -103,7 +106,7 @@ export class RetrySender {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    console.log('[RetrySender] 重试发送器已停止');
+    logger.log('重试发送器已停止');
   }
 
   /**
@@ -118,7 +121,7 @@ export class RetrySender {
   ): boolean {
     // 检查队列大小
     if (this.queue.size >= this.config.maxQueueSize) {
-      console.warn('[RetrySender] 队列已满，拒绝新消息');
+      logger.warn('队列已满，拒绝新消息');
       return false;
     }
 
@@ -136,7 +139,7 @@ export class RetrySender {
     };
 
     this.queue.set(id, message);
-    console.log(`[RetrySender] 消息已加入重试队列: ${id}`);
+    logger.log(`消息已加入重试队列: ${id}`);
     return true;
   }
 
@@ -160,7 +163,7 @@ export class RetrySender {
     if (message) {
       message.status = 'sent';
       this.queue.delete(id);
-      console.log(`[RetrySender] 消息发送成功: ${id}`);
+      logger.log(`消息发送成功: ${id}`);
     }
   }
 
@@ -177,11 +180,11 @@ export class RetrySender {
 
     if (message.retryCount >= this.config.maxRetries) {
       message.status = 'failed';
-      console.error(`[RetrySender] 消息发送失败，达到最大重试次数: ${id}`);
+      logger.error(`消息发送失败，达到最大重试次数: ${id}`);
     } else {
       message.status = 'pending';
-      console.log(
-        `[RetrySender] 消息将在重试后发送: ${id} (重试 ${message.retryCount}/${this.config.maxRetries})`
+      logger.log(
+        `消息将在重试后发送: ${id} (重试 ${message.retryCount}/${this.config.maxRetries})`
       );
     }
   }
@@ -249,7 +252,7 @@ export class RetrySender {
    */
   clear(): void {
     this.queue.clear();
-    console.log('[RetrySender] 队列已清空');
+    logger.log('队列已清空');
   }
 
   /**
@@ -296,7 +299,7 @@ export class RetrySender {
       return;
     }
 
-    console.log(`[RetrySender] 准备重试发送 ${pending.length} 条消息`);
+    logger.log(`准备重试发送 ${pending.length} 条消息`);
 
     for (const message of pending) {
       const started = this.startSending(message.id);

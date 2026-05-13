@@ -10,6 +10,9 @@ import {
   MemoryFilter,
 } from './memoryStore';
 import { SessionManager } from '../session-manager/sessionManager';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Memory');
 
 /**
  * 记忆管理器配置
@@ -192,9 +195,7 @@ export class MemoryManager {
     });
 
     this.summarizedCounts.set(conversationId, messageCount);
-    console.log(
-      `[Memory] 自动摘要已生成: conversationId=${conversationId}, messageCount=${messageCount}`
-    );
+    logger.log(`自动摘要已生成: conversationId=${conversationId}, messageCount=${messageCount}`);
 
     return entry;
   }
@@ -341,7 +342,7 @@ export class MemoryManager {
         const entry = this.store.create(input);
         entries.push(entry);
       } catch (error) {
-        console.error(`[Memory] 批量创建记忆失败: key=${input.key}`, error);
+        logger.error(`批量创建记忆失败: key=${input.key}`, error);
       }
     }
     return entries;

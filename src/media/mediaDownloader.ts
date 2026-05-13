@@ -5,6 +5,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import axios from 'axios';
 import { DingtalkService } from '../dingtalk/dingtalk';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('MediaDownloader');
 
 export interface DownloadedMedia {
   buffer: Buffer;
@@ -49,7 +52,7 @@ export class MediaDownloader {
     const token = await this.getAccessToken();
     const url = `https://oapi.dingtalk.com/media/downloadFile?mediaId=${encodeURIComponent(mediaId)}&access_token=${token}`;
 
-    console.log(`[Media] Downloading media: ${mediaId.substring(0, 20)}...`);
+    logger.log(`Downloading media: ${mediaId.substring(0, 20)}...`);
 
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
@@ -61,7 +64,7 @@ export class MediaDownloader {
     const ext = format || this.guessExtension(contentType);
     const mimeType = MIME_MAP[ext] || contentType || 'application/octet-stream';
 
-    console.log(`[Media] Downloaded: ${buffer.length} bytes, type: ${mimeType}`);
+    logger.log(`Downloaded: ${buffer.length} bytes, type: ${mimeType}`);
 
     return {
       buffer,

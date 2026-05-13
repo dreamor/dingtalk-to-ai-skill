@@ -7,13 +7,10 @@
  * 4. Auto-reconnect with exponential backoff
  * 5. Connection health monitoring
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { DWClient, TOPIC_ROBOT, DWClientDownStream } from 'dingtalk-stream';
 import { config } from '../config';
 import axios from 'axios';
+import type { StreamMessageData } from '../types/dingtalk-api';
 import {
   updateAdminSessionWebhook,
   getAdminConversationId,
@@ -26,6 +23,16 @@ import type { MediaProcessor } from '../media/mediaProcessor';
 import { createSafeLogger } from '../utils/logger';
 
 const logger = createSafeLogger('Stream');
+
+/** DWClient 扩展类型：包含未在类型定义中声明的 API */
+interface DWClientExtended {
+  config?: { subscriptions?: { type: string; topic: string }[] };
+  registerCallbackListener(topic: string, cb: (msg: DWClientDownStream) => Promise<void>): void;
+  socketCallBackResponse(messageId: string, data: Record<string, unknown>): void;
+  disconnect(): void;
+  on(event: string, cb: (...args: unknown[]) => void): void;
+  connect(): Promise<void>;
+}
 
 export interface MessageHandler {
   (
@@ -47,6 +54,11 @@ interface SessionInfo {
   lastUsedAt: number; // 最后使用时间
   healthStatus: 'healthy' | 'unknown' | 'failed'; // 健康状态
   failureCount: number; // 连续失败计数
+}
+
+/** 安全访问 DWClient 的扩展 API（类型定义中未声明的属性） */
+function ext(client: DWClient): DWClientExtended {
+  return client;
 }
 
 export class DingtalkStreamService {
@@ -122,8 +134,8 @@ export class DingtalkStreamService {
     });
 
     // 安全设置 subscriptions（兼容测试环境）
-    if (this.client.config) {
-      this.client.config.subscriptions = DEFAULT_SUBSCRIPTIONS;
+    if (ext(this.client).config) {
+      ext(this.client).config!.subscriptions = DEFAULT_SUBSCRIPTIONS;
     }
 
     this.client.on('ready', () => {
@@ -157,8 +169,7 @@ export class DingtalkStreamService {
       }
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises
-    this.client.registerCallbackListener(TOPIC_ROBOT, async (msg: DWClientDownStream) => {
+    ext(this.client).registerCallbackListener(TOPIC_ROBOT, async (msg: DWClientDownStream) => {
       logger.log(`Received callback: msgId=${msg.headers.messageId}, topic=${msg.headers.topic}`);
 
       await this.handleMessage(msg).catch(error => {
@@ -168,7 +179,7 @@ export class DingtalkStreamService {
 
     try {
       logger.log('Connecting to DingTalk Stream...');
-      await this.client.connect();
+      await ext(this.client).connect();
       logger.log('Connected, waiting for messages...');
     } catch (error) {
       logger.error('Connection failed:', error instanceof Error ? error.message : String(error));
@@ -281,7 +292,7 @@ export class DingtalkStreamService {
 
     if (this.client) {
       try {
-        this.client.disconnect();
+        ext(this.client).disconnect();
       } catch (error) {
         logger.error('Error disconnecting:', error);
       }
@@ -322,15 +333,20 @@ export class DingtalkStreamService {
     const messageId = msg.headers.messageId;
 
     // KEY FIX: ACK to DingTalk immediately to prevent timeout
-    this.client?.socketCallBackResponse(messageId, { received: true });
+    if (this.client) {
+      ext(this.client).socketCallBackResponse(messageId, { received: true });
+    }
 
     try {
-      const data = typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
+      const data: StreamMessageData =
+        typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data;
 
       this.lastMessageTime = Date.now();
       this.updateHeartbeat();
 
-      logger.log(`[${messageId}] type=${data.msgtype}, hasText=${!!data.text?.content}`);
+      logger.log(
+        `[${messageId}] type=${data.msgtype}, hasText=${!!(typeof data.text === 'object' ? data.text?.content : data.text)}`
+      );
 
       const {
         senderId,
@@ -369,7 +385,7 @@ export class DingtalkStreamService {
             if (msgtype === 'voice' && data.voice) {
               processedMedia = await this.mediaProcessor.processVoice(
                 data.voice.mediaId,
-                data.voice.duration,
+                String(data.voice.duration),
                 data.voice.format
               );
             } else if (msgtype === 'picture' && data.picture) {
@@ -410,7 +426,7 @@ export class DingtalkStreamService {
           };
           messageContent = placeholders[msgtype] || `[${msgtype}消息] 用户发送了${msgtype}消息`;
         }
-      } else if (msgtype === 'text' && text?.content) {
+      } else if (msgtype === 'text' && text && typeof text === 'object' && 'content' in text) {
         messageContent = text.content;
       } else if (typeof content === 'string' && content) {
         messageContent = content;
@@ -452,19 +468,19 @@ export class DingtalkStreamService {
               userId,
               conversationId || ''
             );
-            if (sessionWebhook) {
+            if (sessionWebhook && conversationId) {
               await this.sendMarkdownMessage(conversationId, '命令结果', response);
             }
           } catch (error) {
             logger.error(`[${messageId}] Command handling failed:`, error);
-            if (sessionWebhook) {
+            if (sessionWebhook && conversationId) {
               await this.sendTextMessage(conversationId, '❌ 命令处理失败，请稍后重试');
             }
           }
           return; // 命令处理完毕，不进入 AI 流程
         }
 
-        if (this.messageHandler && sessionWebhook) {
+        if (this.messageHandler && sessionWebhook && conversationId) {
           logger.log(`[${messageId}] Starting async processing...`);
 
           // Async processing without blocking
@@ -548,8 +564,8 @@ export class DingtalkStreamService {
       sessionInfo.failureCount = 0;
 
       return true;
-    } catch (error: any) {
-      logger.error('Failed to send text:', error.message);
+    } catch (error: unknown) {
+      logger.error('Failed to send text:', error instanceof Error ? error.message : String(error));
 
       const sessionInfo = this.pendingMessages.get(conversationId);
       if (sessionInfo) {
@@ -744,7 +760,7 @@ export class DingtalkStreamService {
       .map(s => s.trim())
       .filter(Boolean);
     if (allowedUsers.length === 0) {
-      console.warn('[DingtalkStream] DINGTALK_ALLOW_FROM 非通配符但解析后为空列表，将允许所有用户');
+      logger.warn('DINGTALK_ALLOW_FROM 非通配符但解析后为空列表，将允许所有用户');
       return true;
     }
     return allowedUsers.includes(userId);

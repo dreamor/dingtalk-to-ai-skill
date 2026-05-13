@@ -13,6 +13,9 @@ import {
   type SessionResult,
   type SessionCallbacks,
 } from './session';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('SessionPool');
 
 /** 会话池配置 */
 export interface SessionPoolConfig {
@@ -121,7 +124,7 @@ export class SessionPool {
     } catch (error) {
       // 会话失效时尝试重新创建
       if (!session.isAlive) {
-        console.log(`[SessionPool] 会话失效，重新创建: ${conversationId}`);
+        logger.log(`会话失效，重新创建: ${conversationId}`);
         this.sessions.delete(conversationId);
         session = await this.getOrCreate(conversationId, callbacks);
         const result = await session.send(message, callbacks);
@@ -154,7 +157,7 @@ export class SessionPool {
 
     const closings = Array.from(this.sessions.values()).map(entry =>
       entry.session.close().catch(err => {
-        console.error(`[SessionPool] 关闭会话失败 (${entry.conversationId}):`, err);
+        logger.error(`关闭会话失败 (${entry.conversationId}):`, err);
       })
     );
 
@@ -214,22 +217,22 @@ export class SessionPool {
     const actual = Math.min(target, this.config.maxSessions - this.sessions.size);
     if (actual <= 0) return;
 
-    console.log(`[SessionPool] 开始预热 ${actual} 个 spare 会话...`);
+    logger.log(`开始预热 ${actual} 个 spare 会话...`);
 
     const tasks = Array.from({ length: actual }, (_, i) => {
       const spareKey = `${WARM_SPARE_PREFIX}${Date.now()}_${i}`;
       return this.createSession(spareKey)
         .then(() => {
           this.spareKeys.push(spareKey);
-          console.log(`[SessionPool] spare 会话就绪: ${spareKey}`);
+          logger.log(`spare 会话就绪: ${spareKey}`);
         })
         .catch(err => {
-          console.warn(`[SessionPool] spare 预热失败: ${err.message}`);
+          logger.warn(`spare 预热失败: ${err.message}`);
         });
     });
 
     await Promise.all(tasks);
-    console.log(`[SessionPool] 预热完成，当前 spare 数: ${this.spareKeys.length}`);
+    logger.log(`预热完成，当前 spare 数: ${this.spareKeys.length}`);
   }
 
   // ==================== 私有方法 ====================
@@ -296,7 +299,7 @@ export class SessionPool {
         });
       }
 
-      console.log(`[SessionPool] 认领 spare 会话: ${spareKey} → ${conversationId}`);
+      logger.log(`认领 spare 会话: ${spareKey} → ${conversationId}`);
       return entry.session;
     }
 
@@ -314,11 +317,11 @@ export class SessionPool {
     }
 
     if (oldest) {
-      console.log(`[SessionPool] 淘汰最久未使用的会话: ${oldest.conversationId}`);
+      logger.log(`淘汰最久未使用的会话: ${oldest.conversationId}`);
       this.sessions.delete(oldest.conversationId);
       this.spareKeys = this.spareKeys.filter(k => k !== oldest.conversationId);
       await oldest.session.close().catch(err => {
-        console.error(`[SessionPool] 淘汰会话关闭失败:`, err);
+        logger.error(`淘汰会话关闭失败:`, err);
       });
     }
   }
@@ -346,11 +349,11 @@ export class SessionPool {
           continue;
         }
 
-        console.log(`[SessionPool] 清理空闲会话: ${id} (空闲 ${Math.round(idleMs / 1000)}s)`);
+        logger.log(`清理空闲会话: ${id} (空闲 ${Math.round(idleMs / 1000)}s)`);
         this.sessions.delete(id);
         this.spareKeys = this.spareKeys.filter(k => k !== id);
         entry.session.close().catch(err => {
-          console.error(`[SessionPool] 清理会话关闭失败:`, err);
+          logger.error(`清理会话关闭失败:`, err);
         });
       }
     }

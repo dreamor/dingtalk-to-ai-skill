@@ -7,10 +7,9 @@
  * 2. streamUpdate() - 流式更新卡片内容
  * 3. finish() - 完成卡片，标记为 finished
  */
-/* eslint-disable @typescript-eslint/no-unsafe-member-access */
-
 import axios, { AxiosError } from 'axios';
 import { config } from '../config';
+import type { DingtalkAccessTokenResponse } from '../types/dingtalk-api';
 import { createSafeLogger } from '../utils/logger';
 
 const logger = createSafeLogger('AICard');
@@ -67,7 +66,7 @@ async function getAccessToken(): Promise<string> {
     throw new Error('缺少钉钉配置：appKey 或 appSecret');
   }
 
-  const response = await axios.post(
+  const response = await axios.post<DingtalkAccessTokenResponse>(
     `${DINGTALK_API}/v1.0/oauth2/accessToken`,
     { appKey, appSecret },
     { headers: { 'Content-Type': 'application/json' } }
@@ -75,13 +74,13 @@ async function getAccessToken(): Promise<string> {
 
   // 新 API 响应：accessToken 字段（小写）
   if (response.data.accessToken) {
-    return response.data.accessToken as string;
+    return response.data.accessToken;
   }
   // 兜底旧格式（errcode 字段）
   if (response.data.errcode !== 0) {
-    throw new Error(`获取 access_token 失败：${response.data.errmsg}`);
+    throw new Error(`获取 access_token 失败：${response.data.errmsg ?? 'unknown'}`);
   }
-  return response.data.access_token as string;
+  return response.data.access_token ?? '';
 }
 
 /**
@@ -261,13 +260,12 @@ export class AICardService {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error(`创建卡片失败 (${targetDesc}): ${errorMessage}`);
 
-      const axiosErr = err as AxiosError;
-      if (axiosErr.response) {
-        const responseData = axiosErr.response.data as { code?: string; message?: string };
+      if (axios.isAxiosError(err) && err.response) {
+        const responseData = err.response.data as Record<string, unknown> | undefined;
         logger.error(
-          `错误响应：status=${axiosErr.response?.status}, code=${responseData.code}, message=${JSON.stringify(responseData.message)}`
+          `错误响应：status=${err.response.status}, code=${(responseData as Record<string, unknown>)?.code}, message=${JSON.stringify((responseData as Record<string, unknown>)?.message)}`
         );
-      } else if (axiosErr.request) {
+      } else if (axios.isAxiosError(err) && err.request) {
         logger.error(`网络错误：无法连接到钉钉 API`);
       }
 
@@ -439,10 +437,9 @@ export class AICardService {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error(`完成卡片失败：${errorMessage}`);
 
-      const axiosErr = err as AxiosError;
-      if (axiosErr.response) {
+      if (axios.isAxiosError(err) && err.response) {
         logger.error(
-          `完成失败详情：status=${axiosErr.response?.status}, data=${JSON.stringify(axiosErr.response.data)}`
+          `完成失败详情：status=${err.response.status}, data=${JSON.stringify(err.response.data)}`
         );
       }
 

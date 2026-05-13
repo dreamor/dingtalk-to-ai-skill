@@ -2,6 +2,9 @@
  * Agent 注册表 - 管理所有 AI Agent 实例
  */
 import type { Agent } from './types';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('AgentRegistry');
 
 class AgentRegistry {
   private agents: Map<string, Agent> = new Map();
@@ -9,13 +12,13 @@ class AgentRegistry {
 
   register(agent: Agent, isDefault: boolean = false): void {
     if (this.agents.has(agent.name)) {
-      console.warn(`[AgentRegistry] Agent "${agent.name}" 已注册，将覆盖`);
+      logger.warn(`Agent "${agent.name}" 已注册，将覆盖`);
     }
     this.agents.set(agent.name, agent);
     if (isDefault || this.agents.size === 1) {
       this.defaultAgent = agent.name;
     }
-    console.log(`[AgentRegistry] Agent "${agent.name}" (${agent.type}) 已注册${isDefault ? ' (默认)' : ''}`);
+    logger.log(`Agent "${agent.name}" (${agent.type}) 已注册${isDefault ? ' (默认)' : ''}`);
   }
 
   get(name: string): Agent | undefined {

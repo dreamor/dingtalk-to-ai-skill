@@ -6,6 +6,9 @@
 import { UserMessage } from '../types/message';
 import { SQLiteStorage, getStorage } from '../storage/sqlite';
 import { config } from '../config';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('MessageQueue');
 
 export type MessagePriority = 'low' | 'normal' | 'high';
 
@@ -44,16 +47,16 @@ export class MessageQueue {
           dbPath: config.storage.dbPath || undefined,
           enableWAL: config.storage.enableWAL,
         });
-        console.log('[MessageQueue] SQLite 持久化已启用');
+        logger.log('SQLite 持久化已启用');
         // 从数据库恢复待处理消息
         this.restoreFromStorage();
       } catch (error) {
-        console.error('[MessageQueue] 初始化 SQLite 存储失败:', error);
-        console.log('[MessageQueue] 回退到内存模式');
+        logger.error('初始化 SQLite 存储失败:', error);
+        logger.log('回退到内存模式');
         this.enablePersistence = false;
       }
     } else {
-      console.log('[MessageQueue] 使用内存模式（持久化未启用）');
+      logger.log('使用内存模式（持久化未启用）');
     }
   }
 
@@ -86,9 +89,9 @@ export class MessageQueue {
         };
         this.queue.push(queued);
       }
-      console.log(`[MessageQueue] 从 SQLite 恢复 ${pendingMessages.length} 条消息`);
+      logger.log(`从 SQLite 恢复 ${pendingMessages.length} 条消息`);
     } catch (error) {
-      console.error('[MessageQueue] 从 SQLite 恢复消息失败:', error);
+      logger.error('从 SQLite 恢复消息失败:', error);
     }
   }
 
@@ -98,9 +101,7 @@ export class MessageQueue {
   enqueue(message: UserMessage, priority: MessagePriority = 'normal'): boolean {
     // 队列容量检查
     if (this.queue.length >= this.maxQueueSize) {
-      console.warn(
-        `[MessageQueue] 队列已满 (${this.queue.length}/${this.maxQueueSize})，拒绝消息：${message.id}`
-      );
+      logger.warn(`队列已满 (${this.queue.length}/${this.maxQueueSize})，拒绝消息：${message.id}`);
       return false;
     }
 
@@ -131,11 +132,11 @@ export class MessageQueue {
           updatedAt: queued.enqueueTime,
         });
       } catch (error) {
-        console.error('[MessageQueue] 保存消息到 SQLite 失败:', error);
+        logger.error('保存消息到 SQLite 失败:', error);
       }
     }
 
-    console.log(`📬 消息入队：${message.id} (优先级：${priority}, 队列长度：${this.queue.length})`);
+    logger.log(`📬 消息入队：${message.id} (优先级：${priority}, 队列长度：${this.queue.length})`);
     return true;
   }
 
@@ -158,7 +159,7 @@ export class MessageQueue {
       try {
         this.storage.updateQueueMessageStatus(item.message.id, 'processing');
       } catch (error) {
-        console.error('[MessageQueue] 更新消息状态失败:', error);
+        logger.error('更新消息状态失败:', error);
       }
     }
 
@@ -197,11 +198,11 @@ export class MessageQueue {
       try {
         this.storage.updateQueueMessageStatus(messageId, 'completed');
       } catch (error) {
-        console.error('[MessageQueue] 更新消息完成状态失败:', error);
+        logger.error('更新消息完成状态失败:', error);
       }
     }
 
-    console.log(`✅ 消息处理完成：${messageId}`);
+    logger.log(`✅ 消息处理完成：${messageId}`);
   }
 
   /**
@@ -224,11 +225,11 @@ export class MessageQueue {
           try {
             this.storage.updateQueueMessageStatus(messageId, 'pending', error);
           } catch (err) {
-            console.error('[MessageQueue] 更新消息重试状态失败:', err);
+            logger.error('更新消息重试状态失败:', err);
           }
         }
 
-        console.log(`🔄 消息重试：${messageId} (第 ${item.retryCount} 次)`);
+        logger.log(`🔄 消息重试：${messageId} (第 ${item.retryCount} 次)`);
       } else {
         // 超过最大重试次数，从队列中移除
         this.queue.splice(index, 1);
@@ -238,11 +239,11 @@ export class MessageQueue {
           try {
             this.storage.updateQueueMessageStatus(messageId, 'failed', error);
           } catch (err) {
-            console.error('[MessageQueue] 更新消息失败状态失败:', err);
+            logger.error('更新消息失败状态失败:', err);
           }
         }
 
-        console.log(`❌ 消息处理失败：${messageId} (超过最大重试次数)`);
+        logger.log(`❌ 消息处理失败：${messageId} (超过最大重试次数)`);
       }
     }
   }
@@ -328,10 +329,10 @@ export class MessageQueue {
           for (const msg of pending) {
             this.storage.deleteQueueMessage(msg.id);
           }
-          console.log(`[MessageQueue] 已清理 SQLite 中的 ${total} 条消息`);
+          logger.log(`已清理 SQLite 中的 ${total} 条消息`);
         }
       } catch (error) {
-        console.error('[MessageQueue] 清理 SQLite 消息失败:', error);
+        logger.error('清理 SQLite 消息失败:', error);
       }
     }
   }
@@ -353,7 +354,7 @@ export class MessageQueue {
     try {
       return this.storage.getStats();
     } catch (error) {
-      console.error('[MessageQueue] 获取存储统计失败:', error);
+      logger.error('获取存储统计失败:', error);
       return null;
     }
   }

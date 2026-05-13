@@ -94,7 +94,7 @@ export class ClaudeCodeExecutor {
         env.ANTHROPIC_API_KEY = rawEnv.ANTHROPIC_AUTH_TOKEN;
       }
       ClaudeCodeExecutor.cachedClaudeEnv = env;
-      console.log(`[Claude Code] 已加载 ${Object.keys(env).length} 个环境变量 from settings.json`);
+      logger.log(`已加载 ${Object.keys(env).length} 个环境变量 from settings.json`);
       return env;
     } catch (err: unknown) {
       logger.debug(
@@ -113,9 +113,9 @@ export class ClaudeCodeExecutor {
   async execute(prompt: string, context?: MessageContext): Promise<ClaudeCodeResult> {
     const startTime = Date.now();
 
-    console.log(`📝 执行 Claude Code: ${prompt.substring(0, 50)}...`);
+    logger.log(`📝 执行 Claude Code: ${prompt.substring(0, 50)}...`);
     if (context?.userId) {
-      console.log(`   用户: ${context.userName || context.userId}`);
+      logger.log(`   用户: ${context.userName || context.userId}`);
     }
 
     try {
@@ -135,7 +135,7 @@ export class ClaudeCodeExecutor {
         maxDelay: this.config.retryMaxDelay || 10000,
         exponential: true,
         onRetry: (attempt, error, delay) => {
-          console.warn(
+          logger.warn(
             `[Claude Code] 执行失败，正在重试 (第 ${attempt}/${this.config.maxRetries} 次，延迟 ${delay}ms): ${error.message}`
           );
         },
@@ -150,7 +150,7 @@ export class ClaudeCodeExecutor {
         executionTime: Date.now() - startTime,
       };
     } catch (error) {
-      console.error('[Claude Code] 执行失败:', error);
+      logger.error('执行失败:', error);
 
       if (error instanceof InputValidationError) {
         return {
@@ -321,7 +321,7 @@ export class ClaudeCodeExecutor {
       let resolved = false;
       let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      console.log(`[Claude Code] 执行命令: ${this.config.command} ${args.join(' ')}`);
+      logger.log(`执行命令: ${this.config.command} ${args.join(' ')}`);
 
       // 使用 node-pty 创建伪终端，Claude CLI 需要 TTY
       const ptyProcess = pty.spawn(this.config.command, args, {
@@ -352,8 +352,8 @@ export class ClaudeCodeExecutor {
           timeoutId = null;
         }
 
-        console.log(`[Claude Code] 进程结束，退出码: ${exitCode}, 信号: ${signal}`);
-        console.log(`[Claude Code] 原始输出: ${output.substring(0, 500)}`);
+        logger.log(`进程结束，退出码: ${exitCode}, 信号: ${signal}`);
+        logger.log(`原始输出: ${output.substring(0, 500)}`);
 
         // 过滤输出中的警告和控制字符
         const filteredOutput = this.filterWarnings(this.stripAnsiCodes(output.trim()));
@@ -370,7 +370,7 @@ export class ClaudeCodeExecutor {
       // 超时处理
       timeoutId = setTimeout(() => {
         if (!resolved) {
-          console.log(`[Claude Code] 执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
+          logger.log(`执行超时 (${this.config.timeout / 1000}秒)，终止进程`);
           resolved = true;
           ptyProcess.kill();
 
@@ -413,7 +413,7 @@ export class ClaudeCodeExecutor {
   ): Promise<ClaudeCodeResult> {
     const startTime = Date.now();
 
-    console.log(`📝 流式执行 Claude Code: ${prompt.substring(0, 50)}...`);
+    logger.log(`📝 流式执行 Claude Code: ${prompt.substring(0, 50)}...`);
 
     try {
       const fullPrompt = this.buildPromptWithContext(prompt, context);
@@ -568,7 +568,7 @@ export class ClaudeCodeExecutor {
    */
   async initSessionPool(poolConfig?: SessionPoolConfig): Promise<void> {
     if (this.sessionPool) {
-      console.log('[ClaudeCode] 会话池已初始化，跳过');
+      logger.log('会话池已初始化，跳过');
       return;
     }
 
@@ -586,7 +586,7 @@ export class ClaudeCodeExecutor {
     );
 
     this.sessionPool.startCleanup();
-    console.log('[ClaudeCode] 会话池已初始化');
+    logger.log('会话池已初始化');
 
     const warmCount = config.persistentSession.warmUpSessions;
     if (warmCount > 0) {
@@ -612,14 +612,14 @@ export class ClaudeCodeExecutor {
 
     // 降级：会话池未初始化时使用 executeStream
     if (!this.sessionPool) {
-      console.log('[ClaudeCode] 会话池未初始化，降级到 executeStream');
+      logger.log('会话池未初始化，降级到 executeStream');
       if (onChunk) {
         return this.executeStream(prompt, onChunk, context);
       }
       return this.execute(prompt, context);
     }
 
-    console.log(`🚀 持久化会话执行: ${conversationId} - ${prompt.substring(0, 50)}...`);
+    logger.log(`🚀 持久化会话执行: ${conversationId} - ${prompt.substring(0, 50)}...`);
 
     try {
       const fullPrompt = this.buildPromptWithContext(prompt, context);
@@ -647,10 +647,10 @@ export class ClaudeCodeExecutor {
         exitCode: result.success ? 0 : -1,
       };
     } catch (error) {
-      console.error('[ClaudeCode] 持久化会话执行失败:', error);
+      logger.error('持久化会话执行失败:', error);
 
       // 降级到 executeStream
-      console.log('[ClaudeCode] 降级到 executeStream');
+      logger.log('降级到 executeStream');
       if (onChunk) {
         return this.executeStream(prompt, onChunk, context);
       }
@@ -677,7 +677,7 @@ export class ClaudeCodeExecutor {
   async closeSessionPool(): Promise<void> {
     if (this.sessionPool) {
       await this.sessionPool.closeAll();
-      console.log('[ClaudeCode] 会话池已关闭');
+      logger.log('会话池已关闭');
     }
   }
 
@@ -687,7 +687,7 @@ export class ClaudeCodeExecutor {
   async closeSessionPoolSession(conversationId: string): Promise<void> {
     if (this.sessionPool) {
       await this.sessionPool.closeSession(conversationId);
-      console.log(`[ClaudeCode] 会话已关闭: ${conversationId}`);
+      logger.log(`会话已关闭: ${conversationId}`);
     }
   }
 }

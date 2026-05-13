@@ -6,6 +6,9 @@ import { Session, SessionState, SessionConfig, DEFAULT_SESSION_CONFIG } from '..
 import { ConversationMessage } from '../types/message';
 import { config } from '../config';
 import { generateConversationId } from '../utils/messageId';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('SessionManager');
 
 /**
  * 内存中的会话存储
@@ -89,7 +92,7 @@ export class SessionManager {
     };
 
     this.sessions[conversationId] = session;
-    console.log(`✅ 创建会话：${conversationId} (用户：${userId})`);
+    logger.log(`✅ 创建会话：${conversationId} (用户：${userId})`);
 
     return session;
   }
@@ -110,7 +113,7 @@ export class SessionManager {
         delete this.sessions[id];
       }
       if (toRemove.length > 0) {
-        console.log(`[SessionManager] 达到容量限制，淘汰 ${toRemove.length} 个最老会话`);
+        logger.log(`达到容量限制，淘汰 ${toRemove.length} 个最老会话`);
       }
     }
   }
@@ -148,7 +151,7 @@ export class SessionManager {
       // 检查是否空闲轮转（超过 idle reset 阈值，但未过期）
       if (idleDuration >= config.session.idleResetMs) {
         activeSession.state = SessionState.Idle;
-        console.log(
+        logger.log(
           `🔄 会话空闲轮转：${activeSession.conversationId} (空闲 ${Math.round(idleDuration / 60000)}min)`
         );
         return this.createSession(userId);
@@ -183,7 +186,7 @@ export class SessionManager {
 
     if (session.state === SessionState.Idle || session.state === SessionState.Expired) {
       if (session.state === SessionState.Expired) {
-        console.warn(`⚠️ 切换到已过期会话：${conversationId} (用户：${userId})，上下文可能已过时`);
+        logger.warn(`⚠️ 切换到已过期会话：${conversationId} (用户：${userId})，上下文可能已过时`);
       }
 
       // 将当前活跃会话归档
@@ -197,7 +200,7 @@ export class SessionManager {
       // 重新激活目标会话
       session.state = SessionState.Active;
       session.lastActivityAt = Date.now();
-      console.log(`🔀 切换会话：${conversationId} (用户：${userId})`);
+      logger.log(`🔀 切换会话：${conversationId} (用户：${userId})`);
       return session;
     }
 
@@ -261,7 +264,7 @@ export class SessionManager {
     const session = await this.getSession(conversationId);
     if (session) {
       session.state = state;
-      console.log(`📋 会话结束：${conversationId} (${state})`);
+      logger.log(`📋 会话结束：${conversationId} (${state})`);
     }
   }
 
@@ -273,7 +276,7 @@ export class SessionManager {
     if (session.context.messages.length > maxMessages) {
       const removed = session.context.messages.length - maxMessages;
       session.context.messages = session.context.messages.slice(-maxMessages);
-      console.log(`📝 裁剪消息历史：${session.conversationId} (${removed} 条)`);
+      logger.log(`📝 裁剪消息历史：${session.conversationId} (${removed} 条)`);
     }
   }
 
@@ -302,7 +305,7 @@ export class SessionManager {
       this.cleanupExpiredSessions();
     }, this.cleanupInterval);
 
-    console.log(`🔄 会话清理服务已启动 (间隔：${this.cleanupInterval / 1000}秒)`);
+    logger.log(`🔄 会话清理服务已启动 (间隔：${this.cleanupInterval / 1000}秒)`);
   }
 
   /**
@@ -339,7 +342,7 @@ export class SessionManager {
     }
 
     if (cleanedCount > 0) {
-      console.log(`🧹 清理了 ${cleanedCount} 个过期会话`);
+      logger.log(`🧹 清理了 ${cleanedCount} 个过期会话`);
     }
   }
 
@@ -390,6 +393,6 @@ export class SessionManager {
   // eslint-disable-next-line @typescript-eslint/require-await
   async clearAllSessions(): Promise<void> {
     this.sessions = {};
-    console.log('🧹 已清空所有会话');
+    logger.log('🧹 已清空所有会话');
   }
 }
