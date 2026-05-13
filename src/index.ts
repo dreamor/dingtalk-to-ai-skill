@@ -7,7 +7,7 @@
  * 3. 启动 Stream 模式接收钉钉消息
  * 4. 处理消息并调用 AI CLI
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { config, validateConfig } from './config';
 import { DingtalkService } from './dingtalk/dingtalk';
@@ -45,6 +45,11 @@ async function main(): Promise<void> {
 
   // 验证配置
   validateConfig();
+
+  // 显示权限模式警告
+  if (config.claude.permissionMode !== 'default') {
+    console.warn(`⚠️  权限模式: ${config.claude.permissionMode}`);
+  }
 
   // 初始化基础模块
   const dingtalkService = new DingtalkService();
@@ -163,7 +168,7 @@ async function main(): Promise<void> {
         name: ruleConfig.name,
         enabled: ruleConfig.enabled,
         priority: ruleConfig.priority,
-        condition: ruleConfig.condition as any,
+        condition: ruleConfig.condition,
         provider: ruleConfig.provider,
       });
     }

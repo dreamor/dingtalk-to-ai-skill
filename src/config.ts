@@ -256,12 +256,24 @@ export const config = {
     workingDir: process.env.CLAUDE_WORKING_DIR || process.cwd(),
     model: process.env.CLAUDE_MODEL || '',
     maxInputLength: parseEnvNumber('CLAUDE_MAX_INPUT_LENGTH', 10000, 100, 100000),
-    permissionMode: parseEnvString('CLAUDE_PERMISSION_MODE', 'default', [
-      'default',
-      'plan',
-      'auto-edit',
-      'dangerously-skip-permissions',
-    ]) as PermissionMode,
+    permissionMode: (() => {
+      const mode = parseEnvString('CLAUDE_PERMISSION_MODE', 'default', [
+        'default',
+        'plan',
+        'auto-edit',
+        'dangerously-skip-permissions',
+      ]) as PermissionMode;
+      if (mode === 'dangerously-skip-permissions') {
+        if (process.env.NODE_ENV === 'production') {
+          logger.error('dangerously-skip-permissions 模式在生产环境被禁用，已降级为 default 模式');
+          return 'default';
+        }
+        logger.warn(
+          '⚠️ dangerously-skip-permissions 模式已启用！AI CLI 可无限制执行任意命令，请确保仅在开发环境使用'
+        );
+      }
+      return mode;
+    })(),
   } as ClaudeCodeConfig,
 
   session: {
