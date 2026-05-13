@@ -7,12 +7,15 @@ import { MessageQueue, QueuedMessage } from '../message-queue/messageQueue';
 import { ConcurrencyController } from '../message-queue/concurrencyController';
 import { RateLimiter } from '../message-queue/rateLimiter';
 import { MessageDeduplicator } from '../utils/dedupCache';
+import { createSafeLogger } from '../utils/logger';
 import { SessionManager } from '../session-manager';
 import { OpenCodeExecutor, MessageContext } from '../opencode';
 import { ClaudeCodeExecutor } from '../claude';
 import { UserMessage, AIMessage } from '../types/message';
 import type { Session } from '../types/session';
 import { generateMessageId } from '../utils/messageId';
+
+const logger = createSafeLogger('QueueConsumer');
 import { buildHistory } from '../utils/historyBuilder';
 import { config } from '../config';
 import { hookRunner } from '../hooks';
@@ -281,7 +284,12 @@ export class QueueConsumer {
         conversationId: session.conversationId,
         content: message.content.substring(0, 200),
       })
-      .catch(() => {});
+      .catch(err =>
+        logger.warn(
+          'Hook message_received 触发失败:',
+          err instanceof Error ? err.message : String(err)
+        )
+      );
 
     const history = await this.buildHistory(session.conversationId);
 

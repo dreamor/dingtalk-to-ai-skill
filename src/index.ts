@@ -342,7 +342,9 @@ async function cleanupResources(): Promise<void> {
 process.on('SIGINT', async () => {
   console.log('\n🛑 接收到关闭信号，正在清理...');
   if (isAlertEnabled()) {
-    notifyServiceStop('收到 SIGINT 信号').catch(() => {});
+    notifyServiceStop('收到 SIGINT 信号').catch(err =>
+      console.warn('[Shutdown] 关闭通知发送失败:', err instanceof Error ? err.message : String(err))
+    );
   }
   await cleanupResources();
   process.exit(0);
@@ -352,7 +354,9 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('\n🛑 接收到终止信号，正在清理...');
   if (isAlertEnabled()) {
-    notifyServiceStop('收到 SIGTERM 信号').catch(() => {});
+    notifyServiceStop('收到 SIGTERM 信号').catch(err =>
+      console.warn('[Shutdown] 关闭通知发送失败:', err instanceof Error ? err.message : String(err))
+    );
   }
   await cleanupResources();
   process.exit(0);
@@ -367,7 +371,9 @@ process.on('unhandledRejection', (reason, promise) => {
   // 发送告警
   if (isAlertEnabled()) {
     const reasonStr = reason instanceof Error ? reason.message : String(reason);
-    notifyError('未处理的 Promise 拒绝', reasonStr).catch(() => {});
+    notifyError('未处理的 Promise 拒绝', reasonStr).catch(err =>
+      console.warn('[Alert] 错误告警发送失败:', err instanceof Error ? err.message : String(err))
+    );
   }
 });
 
@@ -380,7 +386,9 @@ process.on('uncaughtException', async error => {
 
   // 发送告警
   if (isAlertEnabled()) {
-    await notifyError('未捕获的异常', error.message, error.stack).catch(() => {});
+    await notifyError('未捕获的异常', error.message, error.stack).catch(err =>
+      console.warn('[Alert] 错误告警发送失败:', err instanceof Error ? err.message : String(err))
+    );
   }
 
   // 严重错误，清理后退出

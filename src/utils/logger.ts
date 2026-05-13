@@ -19,7 +19,10 @@ const SENSITIVE_PATTERNS = [
   // OpenCode 模型参数
   { pattern: /(-m\s+)([a-zA-Z0-9_/-]+)/g, replace: '$1****' },
   // Authorization 头
-  { pattern: /(Authorization)[=:]\s*["']?([Bb]earer\s+)?([a-zA-Z0-9_-]+)["']?/gi, replace: '$1=****' },
+  {
+    pattern: /(Authorization)[=:]\s*["']?([Bb]earer\s+)?([a-zA-Z0-9_-]+)["']?/gi,
+    replace: '$1=****',
+  },
   // 通用密钥模式 (30位以上的字母数字字符串)
   { pattern: /\b([a-zA-Z0-9_-]{32,})\b/g, replace: '****' },
 ];
@@ -42,7 +45,7 @@ export function enableGlobalSanitize(): void {
   for (const method of methods) {
     const original = console[method];
     console[method] = (...args: unknown[]) => {
-      const sanitized = args.map((arg) => {
+      const sanitized = args.map(arg => {
         if (typeof arg === 'string') {
           return sanitizeLog(arg);
         }
@@ -79,25 +82,15 @@ export function sanitizeLog(message: string): string {
  * 创建安全的日志函数
  */
 export function createSafeLogger(tag: string) {
+  const sanitize = (args: unknown[]) =>
+    args.map(arg => (typeof arg === 'string' ? sanitizeLog(arg) : arg));
+
   return {
-    log: (...args: unknown[]) => {
-      const sanitized = args.map(arg =>
-        typeof arg === 'string' ? sanitizeLog(arg) : arg
-      );
-      console.log(`[${tag}]`, ...sanitized);
-    },
-    warn: (...args: unknown[]) => {
-      const sanitized = args.map(arg =>
-        typeof arg === 'string' ? sanitizeLog(arg) : arg
-      );
-      console.warn(`[${tag}]`, ...sanitized);
-    },
-    error: (...args: unknown[]) => {
-      const sanitized = args.map(arg =>
-        typeof arg === 'string' ? sanitizeLog(arg) : arg
-      );
-      console.error(`[${tag}]`, ...sanitized);
-    },
+    log: (...args: unknown[]) => console.log(`[${tag}]`, ...sanitize(args)),
+    info: (...args: unknown[]) => console.info(`[${tag}]`, ...sanitize(args)),
+    debug: (...args: unknown[]) => console.debug(`[${tag}]`, ...sanitize(args)),
+    warn: (...args: unknown[]) => console.warn(`[${tag}]`, ...sanitize(args)),
+    error: (...args: unknown[]) => console.error(`[${tag}]`, ...sanitize(args)),
   };
 }
 

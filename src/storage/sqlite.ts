@@ -6,6 +6,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { UserMessage, ConversationMessage } from '../types/message';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('SQLite');
 
 /**
  * 存储配置
@@ -619,8 +622,8 @@ export class SQLiteStorage {
     try {
       const stats = fs.statSync(this.config.dbPath);
       dbSize = stats.size;
-    } catch {
-      // ignore
+    } catch (err: unknown) {
+      logger.debug('获取数据库文件大小失败:', err instanceof Error ? err.message : String(err));
     }
 
     return {

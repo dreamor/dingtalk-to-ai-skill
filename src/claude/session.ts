@@ -15,6 +15,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { config } from '../config';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('ClaudeSession');
 
 // ==================== 类型定义 ====================
 
@@ -344,16 +347,22 @@ export class ClaudeSession {
           // SIGTERM
           try {
             this.process!.kill('SIGTERM');
-          } catch {
-            // 进程可能已退出
+          } catch (err: unknown) {
+            logger.debug(
+              'SIGTERM 失败，进程可能已退出:',
+              err instanceof Error ? err.message : String(err)
+            );
           }
 
           const sigkillTimer = setTimeout(() => {
             // SIGKILL
             try {
               this.process!.kill('SIGKILL');
-            } catch {
-              // 进程可能已退出
+            } catch (err: unknown) {
+              logger.debug(
+                'SIGKILL 失败，进程可能已退出:',
+                err instanceof Error ? err.message : String(err)
+              );
             }
             resolve();
           }, 5000);
@@ -371,12 +380,13 @@ export class ClaudeSession {
       });
 
       await exitPromise;
-    } catch {
+    } catch (err: unknown) {
+      logger.warn('会话关闭异常:', err instanceof Error ? err.message : String(err));
       // 强制清理
       try {
         this.process.kill('SIGKILL');
-      } catch {
-        // 忽略
+      } catch (killErr: unknown) {
+        logger.debug('SIGKILL 失败:', killErr instanceof Error ? killErr.message : String(killErr));
       }
     }
 
@@ -448,7 +458,11 @@ export class ClaudeSession {
 
       ClaudeSession.cachedEnv = env;
       return { ...env };
-    } catch {
+    } catch (err: unknown) {
+      logger.debug(
+        '加载 Claude 环境变量失败，使用空环境:',
+        err instanceof Error ? err.message : String(err)
+      );
       ClaudeSession.cachedEnv = {};
       return {};
     }
@@ -528,7 +542,7 @@ export class ClaudeSession {
     try {
       event = JSON.parse(line) as ClaudeEvent;
     } catch {
-      console.warn('[ClaudeSession] 无法解析 JSON:', line.substring(0, 200));
+      logger.warn('无法解析 JSON:', line.substring(0, 200));
       return;
     }
     console.log(`[Session] handleLine: type=${event.type}`);

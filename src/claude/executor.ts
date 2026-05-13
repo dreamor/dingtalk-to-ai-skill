@@ -17,6 +17,9 @@ import { withRetry } from '../utils/retry';
 import type { MessageContext } from '../types/message';
 import { SessionPool, type SessionPoolConfig } from './sessionPool';
 import type { SessionCallbacks, SessionResult } from './session';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('ClaudeExecutor');
 
 export interface ClaudeCodeResult {
   success: boolean;
@@ -93,7 +96,11 @@ export class ClaudeCodeExecutor {
       ClaudeCodeExecutor.cachedClaudeEnv = env;
       console.log(`[Claude Code] 已加载 ${Object.keys(env).length} 个环境变量 from settings.json`);
       return env;
-    } catch {
+    } catch (err: unknown) {
+      logger.debug(
+        '加载 Claude Code 环境变量失败:',
+        err instanceof Error ? err.message : String(err)
+      );
       ClaudeCodeExecutor.cachedClaudeEnv = {};
       return {};
     }
@@ -194,6 +201,7 @@ export class ClaudeCodeExecutor {
       }
     } catch {
       // 不是 JSON，保持原有逻辑
+      logger.debug('输出非 JSON 格式，使用文本解析');
     }
 
     // 兼容非 JSON 输出

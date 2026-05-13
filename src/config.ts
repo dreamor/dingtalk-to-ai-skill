@@ -4,6 +4,9 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 import dotenv from 'dotenv';
+import { createSafeLogger } from './utils/logger';
+
+const logger = createSafeLogger('Config');
 
 // 加载环境变量（强制覆盖已有值）
 dotenv.config({ override: true });
@@ -225,7 +228,7 @@ export const config = {
     appKey: process.env.DINGTALK_APP_KEY || '',
     appSecret: process.env.DINGTALK_APP_SECRET || '',
     allowFrom: process.env.DINGTALK_ALLOW_FROM || '*',
-  } as DingtalkConfig,
+  },
 
   gateway: {
     port: parseEnvNumber('GATEWAY_PORT', 3000, 1, 65535),
@@ -266,7 +269,7 @@ export const config = {
     idleResetMs: parseEnvNumber('SESSION_IDLE_RESET_MINS', 30, 5, 1440) * 60 * 1000,
     maxHistoryMessages: parseEnvNumber('SESSION_MAX_HISTORY', 50, 10, 500),
     maxSessions: parseEnvNumber('SESSION_MAX_SESSIONS', 1000, 100, 10000),
-  } as SessionConfig,
+  },
 
   messageQueue: {
     maxConcurrentPerUser: parseEnvNumber('MQ_MAX_CONCURRENT_PER_USER', 3, 1, 20),
@@ -274,20 +277,20 @@ export const config = {
     rateLimitMaxTokens: parseEnvNumber('MQ_RATE_LIMIT_TOKENS', 10, 1, 100),
     pollInterval: parseEnvNumber('MQ_POLL_INTERVAL', 100, 10, 5000),
     enablePersistence: process.env.MQ_ENABLE_PERSISTENCE === 'true',
-  } as MessageQueueConfig,
+  },
 
   stream: {
     enabled: process.env.STREAM_ENABLED !== 'false',
     maxReconnectAttempts: parseEnvNumber('STREAM_MAX_RECONNECT', 10, 1, 100),
     reconnectBaseDelay: parseEnvNumber('STREAM_RECONNECT_BASE_DELAY', 1000, 100, 30000),
     reconnectMaxDelay: parseEnvNumber('STREAM_RECONNECT_MAX_DELAY', 60000, 1000, 300000),
-  } as StreamConfig,
+  },
 
   storage: {
     dbPath: process.env.STORAGE_DB_PATH || '',
     enableWAL: process.env.STORAGE_ENABLE_WAL !== 'false',
     cleanupInterval: parseEnvNumber('STORAGE_CLEANUP_INTERVAL', 3600000, 60000, 86400000),
-  } as StorageConfig,
+  },
 
   logging: {
     level: parseEnvString('LOG_LEVEL', 'info', [
@@ -307,11 +310,15 @@ export const config = {
       try {
         const tasksJson = process.env.SCHEDULER_TASKS;
         return tasksJson ? JSON.parse(tasksJson) : [];
-      } catch {
+      } catch (err: unknown) {
+        logger.debug(
+          'SCHEDULER_TASKS JSON 解析失败，使用空数组:',
+          err instanceof Error ? err.message : String(err)
+        );
         return [];
       }
     })(),
-  } as SchedulerConfig,
+  },
 
   media: {
     enabled: process.env.MEDIA_ENABLED !== 'false',
@@ -319,7 +326,7 @@ export const config = {
     imageDescriptionEnabled: process.env.MEDIA_IMAGE_DESCRIPTION === 'true',
     maxFileSize: parseEnvNumber('MEDIA_MAX_FILE_SIZE', 10485760, 1048576, 52428800),
     downloadTimeout: parseEnvNumber('MEDIA_DOWNLOAD_TIMEOUT', 30000, 5000, 120000),
-  } as MediaConfig,
+  },
 
   router: {
     enabled: process.env.ROUTER_ENABLED === 'true',
@@ -327,7 +334,11 @@ export const config = {
       try {
         const providersJson = process.env.ROUTER_PROVIDERS;
         return providersJson ? JSON.parse(providersJson) : [];
-      } catch {
+      } catch (err: unknown) {
+        logger.debug(
+          'ROUTER_PROVIDERS JSON 解析失败，使用空数组:',
+          err instanceof Error ? err.message : String(err)
+        );
         return [];
       }
     })(),
@@ -335,11 +346,15 @@ export const config = {
       try {
         const rulesJson = process.env.ROUTER_RULES;
         return rulesJson ? JSON.parse(rulesJson) : [];
-      } catch {
+      } catch (err: unknown) {
+        logger.debug(
+          'ROUTER_RULES JSON 解析失败，使用空数组:',
+          err instanceof Error ? err.message : String(err)
+        );
         return [];
       }
     })(),
-  } as RouterConfig,
+  },
 
   memory: {
     enabled: process.env.MEMORY_ENABLED !== 'false',
@@ -349,7 +364,7 @@ export const config = {
     autoMemoryMaxAge: parseEnvNumber('MEMORY_AUTO_MAX_AGE', 7776000000, 86400000, 31536000000),
     boostOnAccess: process.env.MEMORY_BOOST_ON_ACCESS !== 'false',
     boostIncrement: parseEnvNumber('MEMORY_BOOST_INCREMENT', 1, 1, 10) / 10,
-  } as MemoryConfig,
+  },
 
   display: {
     mode: parseEnvString('DISPLAY_MODE', 'compact', ['full', 'compact', 'quiet']) as DisplayMode,
@@ -357,7 +372,7 @@ export const config = {
     thinkingMaxLen: parseEnvNumber('DISPLAY_THINKING_MAX_LEN', 300, 50, 2000),
     toolMessages: process.env.DISPLAY_TOOL_MESSAGES !== 'false',
     toolMaxLen: parseEnvNumber('DISPLAY_TOOL_MAX_LEN', 500, 50, 5000),
-  } as DisplayConfig,
+  },
 
   streaming: {
     enabled: process.env.STREAMING_ENABLED === 'true',
@@ -367,14 +382,14 @@ export const config = {
     thinkingText: '⏳ AI 正在思考...',
     cardTemplateId:
       process.env.STREAMING_CARD_TEMPLATE_ID || '82632605-8031-4963-8a92-d25e2ca8aad7.schema',
-  } as StreamingConfig,
+  },
 
   persistentSession: {
     enabled: process.env.PERSISTENT_SESSION_ENABLED !== 'false',
     maxSessions: parseEnvNumber('PERSISTENT_SESSION_MAX_SESSIONS', 10, 1, 100),
     idleTimeout: parseEnvNumber('PERSISTENT_SESSION_IDLE_TIMEOUT', 1800000, 60000, 86400000),
     warmUpSessions: parseEnvNumber('PERSISTENT_SESSION_WARM_UP', 1, 0, 5),
-  } as PersistentSessionConfig,
+  },
 };
 
 // ==================== 配置验证 ====================

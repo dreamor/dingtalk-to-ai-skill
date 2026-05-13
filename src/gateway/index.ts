@@ -52,6 +52,9 @@ import {
   createRouterRoutes,
   createMemoryRoutes,
 } from './routes';
+import { createSafeLogger } from '../utils/logger';
+
+const logger = createSafeLogger('Gateway');
 
 // Gateway 依赖接口
 export interface GatewayDeps {
@@ -411,7 +414,12 @@ export class GatewayServer {
         conversationId: '',
         content: msg.substring(0, 200),
       })
-      .catch(() => {});
+      .catch(err =>
+        logger.warn(
+          'Hook message_received 触发失败:',
+          err instanceof Error ? err.message : String(err)
+        )
+      );
 
     const maxRetries = 3;
     let lastError: Error | null = null;
@@ -491,7 +499,12 @@ export class GatewayServer {
             conversationId,
             content: result.data?.result?.substring(0, 200),
           })
-          .catch(() => {});
+          .catch(err =>
+            logger.warn(
+              'Hook message_sent 触发失败:',
+              err instanceof Error ? err.message : String(err)
+            )
+          );
       } catch (_sendError) {
         console.error(`[Gateway] 发送回复失败，添加到重试队列`);
         const queueId = generateMessageId();

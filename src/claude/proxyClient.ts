@@ -16,21 +16,9 @@ import * as os from 'os';
 import * as net from 'net';
 
 import { formatToolCall, formatToolResult } from '../utils/toolFormatter';
+import { createSafeLogger } from '../utils/logger';
 
-// ==================== 日志 ====================
-
-function log(level: string, msg: string, meta?: Record<string, unknown>): void {
-  const timestamp = new Date().toISOString();
-  const metaStr = meta ? ` ${JSON.stringify(meta)}` : '';
-  console.log(`[${timestamp}] [${level}] [ClaudeProxyClient] ${msg}${metaStr}`);
-}
-
-const logger = {
-  info: (msg: string, meta?: Record<string, unknown>) => log('INFO', msg, meta),
-  debug: (msg: string, meta?: Record<string, unknown>) => log('DEBUG', msg, meta),
-  warn: (msg: string, meta?: Record<string, unknown>) => log('WARN', msg, meta),
-  error: (msg: string, meta?: Record<string, unknown>) => log('ERROR', msg, meta),
-};
+const logger = createSafeLogger('ClaudeProxy');
 
 // ==================== 类型定义 ====================
 
@@ -140,6 +128,7 @@ export class ClaudeProxyClient {
       process.kill(pid, 0);
       return true;
     } catch {
+      logger.debug('进程不存在或无权限');
       return false;
     }
   }
@@ -286,6 +275,7 @@ export class ClaudeProxyClient {
       try {
         msg = JSON.parse(line) as ClaudeStreamEvent;
       } catch {
+        logger.debug('无法解析代理输出行，跳过');
         continue;
       }
 

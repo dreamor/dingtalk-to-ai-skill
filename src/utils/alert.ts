@@ -78,7 +78,12 @@ export function setStreamService(service: typeof streamService): void {
     while (pendingAlerts.length > 0) {
       const alert = pendingAlerts.shift();
       if (alert) {
-        sendAlert(alert.title, alert.content, alert.level).catch(() => {});
+        sendAlert(alert.title, alert.content, alert.level).catch(err =>
+          console.warn(
+            '[Alert] 缓存告警发送失败:',
+            err instanceof Error ? err.message : String(err)
+          )
+        );
       }
     }
   }
@@ -101,7 +106,12 @@ export function updateAdminSessionWebhook(conversationId: string, sessionWebhook
       while (pendingAlerts.length > 0) {
         const alert = pendingAlerts.shift();
         if (alert) {
-          sendAlert(alert.title, alert.content, alert.level).catch(() => {});
+          sendAlert(alert.title, alert.content, alert.level).catch(err =>
+            console.warn(
+              '[Alert] 缓存告警发送失败:',
+              err instanceof Error ? err.message : String(err)
+            )
+          );
         }
       }
     }
