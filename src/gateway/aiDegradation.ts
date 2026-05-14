@@ -13,7 +13,7 @@ export interface DegradationResult {
 /**
  * 检查 AI CLI 是否可用（带缓存）
  */
-export async function checkAICLIAvailability(): Promise<DegradationResult> {
+async function checkAICLIAvailability(): Promise<DegradationResult> {
   // 使用共享工具检查 CLI（带缓存）
   return checkCLIAvailability();
 }

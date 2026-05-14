@@ -24,7 +24,7 @@ export interface DoctorResult {
 /**
  * 诊断检查项
  */
-export class Doctor {
+class Doctor {
   private results: DoctorResult[] = [];
 
   /**

@@ -1,2 +1,1 @@
-export * from './types';
-export { agentRegistry, AgentRegistry } from './registry';
+export { agentRegistry } from './registry';

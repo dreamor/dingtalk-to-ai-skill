@@ -18,14 +18,6 @@ import { config } from '../config';
 import type { StreamingConfig } from '../config';
 import { AICardService, type AICardInstance } from './aiCardService';
 import { createSafeLogger } from '../utils/logger';
-import {
-  QUIET_TOOLS,
-  READ_ONLY_TOOLS,
-  TOOL_ICONS,
-  shortenPath,
-  formatToolCall,
-  formatToolResult,
-} from '../utils/toolFormatter';
 
 const logger = createSafeLogger('StreamingCard');
 
@@ -110,9 +102,6 @@ export interface StreamCardHandle {
   /** 获取卡片是否已降级 */
   isDegraded(): boolean;
 }
-
-// 重新导出格式化工具，供外部使用
-export { formatToolCall, formatToolResult, shortenPath, TOOL_ICONS, QUIET_TOOLS, READ_ONLY_TOOLS };
 
 /**
  * 截断卡片内容 — 优先保留头部

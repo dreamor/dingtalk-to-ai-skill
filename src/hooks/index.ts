@@ -1,2 +1,2 @@
-export * from './types';
-export { hookRunner, HookRunner } from './hookRunner';
+export type { HookEvent } from './types';
+export { hookRunner } from './hookRunner';

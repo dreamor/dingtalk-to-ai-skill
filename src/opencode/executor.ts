@@ -37,7 +37,7 @@ export interface OpenCodeConfig {
 // 消息上下文从 ../types/message 导入
 
 // 输入验证错误
-export class InputValidationError extends Error {
+class InputValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InputValidationError';
@@ -512,9 +512,6 @@ export class OpenCodeExecutor {
   }
 }
 
-/**
- * 创建 Open Code 执行器实例
- */
-export function createOpenCodeExecutor(options?: Partial<OpenCodeConfig>): OpenCodeExecutor {
+function createOpenCodeExecutor(options?: Partial<OpenCodeConfig>): OpenCodeExecutor {
   return new OpenCodeExecutor(options);
 }

@@ -43,7 +43,7 @@ export interface ClaudeCodeConfig {
 // 消息上下文从 ../types/message 导入
 
 // 输入验证错误
-export class InputValidationError extends Error {
+class InputValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InputValidationError';
@@ -692,9 +692,6 @@ export class ClaudeCodeExecutor {
   }
 }
 
-/**
- * 创建 Claude Code 执行器实例
- */
-export function createClaudeCodeExecutor(options?: Partial<ClaudeCodeConfig>): ClaudeCodeExecutor {
+function createClaudeCodeExecutor(options?: Partial<ClaudeCodeConfig>): ClaudeCodeExecutor {
   return new ClaudeCodeExecutor(options);
 }

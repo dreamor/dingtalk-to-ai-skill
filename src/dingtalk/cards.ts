@@ -100,50 +100,6 @@ export class CardBuilder {
 }
 
 /**
- * 卡片发送器 - 通过 sessionWebhook 发送卡片消息
- */
-export class CardSender {
-  private pendingMessages: Map<string, { sessionWebhook: string }>;
-
-  constructor(pendingMessages: Map<string, { sessionWebhook: string }>) {
-    this.pendingMessages = pendingMessages;
-  }
-
-  async sendCard(conversationId: string, cardData: Record<string, unknown>): Promise<boolean> {
-    try {
-      const sessionInfo = this.pendingMessages.get(conversationId);
-      if (!sessionInfo?.sessionWebhook) {
-        logger.error(`sessionWebhook not found for ${conversationId}`);
-        return false;
-      }
-
-      logger.log(`Sending card to ${conversationId.substring(0, 30)}...`);
-
-      await axios.post(sessionInfo.sessionWebhook, cardData, {
-        timeout: 10000,
-      });
-
-      logger.log('Card sent successfully');
-      return true;
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error('Failed to send card:', msg);
-      return false;
-    }
-  }
-
-  async sendActionCard(
-    conversationId: string,
-    title: string,
-    content: string,
-    buttons: CardButton[]
-  ): Promise<boolean> {
-    const cardData = CardBuilder.createActionCard(title, content, buttons);
-    return this.sendCard(conversationId, cardData);
-  }
-}
-
-/**
  * 卡片回调处理器 - 处理用户点击卡片按钮的回调
  */
 export class CardCallbackHandler {
